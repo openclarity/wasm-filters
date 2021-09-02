@@ -1,0 +1,11 @@
+FROM gcr.io/gcp-etigcp-nprd-12855/pipelines/tinygobase:0.18.0  AS build
+
+WORKDIR /src
+
+COPY . .
+
+RUN tinygo build -o ./http-trace-filter.wasm -target=wasi src/trace/main.go
+
+FROM scratch AS bin
+
+COPY --from=build /src/http-trace-filter.wasm /

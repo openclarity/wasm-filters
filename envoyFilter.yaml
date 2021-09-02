@@ -1,0 +1,57 @@
+apiVersion: networking.istio.io/v1alpha3
+kind: EnvoyFilter
+metadata:
+  name: portshift-filter
+  labels:
+    owner: portshift
+    workload-type: pod
+spec:
+  configPatches:
+    - applyTo: HTTP_FILTER
+      match:
+        context: SIDECAR_OUTBOUND
+        listener:
+          filterChain:
+            filter:
+              name: envoy.filters.network.http_connection_manager
+              subFilter:
+                name: envoy.filters.http.router
+      patch:
+        operation: INSERT_BEFORE
+        value:
+          name: envoy.filters.http.wasm
+          typedConfig:
+            '@type': type.googleapis.com/udpa.type.v1.TypedStruct
+            typeUrl: type.googleapis.com/envoy.extensions.filters.http.wasm.v3.Wasm
+            value:
+              config:
+                name: portshift-outbound-filter
+                rootId: portshift-outbound-filter
+                vmConfig:
+                  code:
+                    local:
+                      filename: /var/local/lib/wasm-filters/http-trace-filter.wasm
+                  runtime: envoy.wasm.runtime.v8
+                  vmId: portshift-outbound-filter
+    - applyTo: CLUSTER
+      match:
+        context: SIDECAR_OUTBOUND
+      patch:
+        operation: ADD
+        value: # cluster specification
+          name: trace_analyzer
+          type: LOGICAL_DNS
+          connect_timeout: 0.5s
+          lb_policy: ROUND_ROBIN
+          load_assignment:
+            cluster_name: trace_analyzer
+            endpoints:
+              - lb_endpoints:
+                  - endpoint:
+                      address:
+                        socket_address:
+                          protocol: TCP
+                          address: {{WASM_FILTER_TRACE_BACKEND_ADDRESS}}
+                          port_value: {{WASM_FILTER_TRACE_BACKEND_PORT}}
+
+

@@ -1,0 +1,5 @@
+From gcr.io/gcp-etigcp-nprd-12855/pipelines/tinygo:0.16.0
+
+RUN groupadd -r ubuntu && useradd -m -r -u 1000 -g ubuntu ubuntu && usermod -aG sudo ubuntu
+
+USER ubuntu
