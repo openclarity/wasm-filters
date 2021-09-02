@@ -1,6 +1,6 @@
 #!/bin/bash
 ConfigMapName="${WASM_FILTER_CONFIG_MAP_NAME:-wasm-filter}"
-TraceBackendAddress="${WASM_FILTER_TRACE_BACKEND_ADDRESS:-app-gazr.app-gazr.svc.cluster.local}"
+TraceBackendAddress="${WASM_FILTER_TRACE_BACKEND_ADDRESS:-apiclarity.apiclarity.svc.cluster.local}"
 TraceBackendPort="${WASM_FILTER_TRACE_BACKEND_PORT:-9000}"
 
 # patch all the pods under this controller with annotations that mounts the wasm filter from the configmap into the envoy proxy
