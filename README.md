@@ -1,5 +1,5 @@
 # Trace Exporter
-## _SecureCN Envoy wasm filter_
+## _APIClarity Envoy wasm filter_
 
 Envoy wasm filter that can export http traffic from envoy proxy to any desired backend for analysis.
 
