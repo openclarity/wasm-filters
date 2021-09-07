@@ -10,6 +10,7 @@ type (
 		RequestID          string       `json:"request_id"`
 		Scheme             string       `json:"scheme"`
 		DestinationAddress string       `json:"destination_address"`
+        SourceAddress      string       'json:"source_address"'
 		SCNTRequest        SCNTRequest  `json:"scnt_request"`
 		SCNTResponse       SCNTResponse `json:"scnt_response"`
 	}
@@ -35,41 +36,14 @@ type (
 ```
 ## Configure
 
-you will need to set your backend address in the envoyFilter.yaml.
+In order to set the backend address (where the traces will be sent to) you need to define the following environment variables:
 ```sh
-    - applyTo: CLUSTER
-      match:
-        context: SIDECAR_OUTBOUND
-      patch:
-        operation: ADD
-        value: # cluster specification
-          name: trace_analyzer
-          type: LOGICAL_DNS
-          connect_timeout: 0.5s
-          lb_policy: ROUND_ROBIN
-          load_assignment:
-            cluster_name: trace_analyzer
-            endpoints:
-              - lb_endpoints:
-                  - endpoint:
-                      address:
-                        socket_address:
-                          protocol: TCP
-                          address: "nats-proxy.portshift.svc.cluster.local"
-                          port_value: 1323
+    WASM_FILTER_TRACE_BACKEND_ADDRESS
+    WASM_FILTER_TRACE_BACKEND_PORT
 
 ```
-Change address and port_value to your own.
 
-### Build the filter
-
-```sh
-make docker_build
-```
-
-This will build the filter into `bin/http-trace-filter.wasm`
-
-### Deploy
+### Deploy the filter
 
 ```sh
 ./deploy.sh <list of namespaces seperated by space>
@@ -83,9 +57,15 @@ If you would like to change the name of the configmap, you can set the environme
 You might need to restart your pods in order for the filter to be deployed.  
 After that you are good to go! 
 
-## Build and deploy locally
+## Build and deploy your own filter
 
-Note - In order to build locally you need to have tinygo installed
+You can build the filter using docker
+
+```sh
+make docker_build
+```
+
+If you want to build the filter without using docker you need to have tinygo installed
 
 On Mac:  
 ```sh
@@ -97,19 +77,15 @@ Then you can run
 make build
 ```
 
-In order to deploy the filter manually, you need to perform the following steps:
-1. create a configmap containing the wasm binary: 
+The wasm filter binary will be in `bin/http-trace-filter.wasm`
+
+Set the binary path via environment variable
+
 ```sh
-kubectl create configmap -n <ns> wasm-filter --from-file=bin/http-trace-filter.wasm
+WASM_FILTER_BINARY_PATH=bin/http-trace-filter.wasm
 ```
-2. add the following annotations to any pod you want to send traces from:
-```sh
-annotations:
-    sidecar.istio.io/userVolume: '[{"name":"wasmfilters-dir","configMap": {"name": "wasm-filter"}}]'
-    sidecar.istio.io/userVolumeMount: '[{"mountPath":"/var/local/lib/wasm-filters","name":"wasmfilters-dir"}]'
-```
-3. apply the envoyFilter.yaml in the namespace.
-4. you might need to restart the pod.
+
+Then you can run the deploy script.
 
 ##
 Current proxy-wasm-go-sdk version used is v0.13.0 Which supports istio 1.9.x, 1.10.x 

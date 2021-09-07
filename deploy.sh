@@ -2,6 +2,7 @@
 ConfigMapName="${WASM_FILTER_CONFIG_MAP_NAME:-wasm-filter}"
 TraceBackendAddress="${WASM_FILTER_TRACE_BACKEND_ADDRESS:-apiclarity.apiclarity.svc.cluster.local}"
 TraceBackendPort="${WASM_FILTER_TRACE_BACKEND_PORT:-9000}"
+BinaryPath="${WASM_FILTER_BINARY_PATH:-bin/release/http-trace-filter.wasm}"
 
 # patch all the pods under this controller with annotations that mounts the wasm filter from the configmap into the envoy proxy
 function patch() {
@@ -35,10 +36,10 @@ do
       kubectl delete cm -n ${ns} ${ConfigMapName}
     fi
     ## create configmap with the wasm filter
-    kubectl create configmap -n ${ns} ${ConfigMapName} --from-file=bin/http-trace-filter.wasm
+    kubectl create configmap -n ${ns} ${ConfigMapName} --from-file=${BinaryPath}
     if [ $? -ne 0 ]
     then
-      echo "Failed to create configmap from file bin/http-trace-filter.wasm, aborting"
+      echo "Failed to create configmap from file ${BinaryPath}, aborting"
       exit 1
     fi
     ## add annotations to pods
