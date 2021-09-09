@@ -16,6 +16,7 @@ jobs:
       run: make docker_release
 
     # This step will evaluate the repo status and exit if found changes
+    # This should detect if the most up-to-date WASM binary was pushed
     - name: Changes validation
       run: |
         [[ -z "$(git status --porcelain)" ]] || exit 1
