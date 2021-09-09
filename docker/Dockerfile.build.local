@@ -1,4 +1,8 @@
-FROM gcr.io/gcp-etigcp-nprd-12855/pipelines/tinygobase:0.18.0  AS build
+FROM tinygo/tinygo:0.18.0 AS build
+
+RUN groupadd -r ubuntu && useradd -m -r -u 1000 -g ubuntu ubuntu && usermod -aG sudo ubuntu
+
+USER ubuntu
 
 WORKDIR /src
 
