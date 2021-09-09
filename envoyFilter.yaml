@@ -1,9 +1,8 @@
 apiVersion: networking.istio.io/v1alpha3
 kind: EnvoyFilter
 metadata:
-  name: portshift-filter
+  name: trace-filter
   labels:
-    owner: portshift
     workload-type: pod
 spec:
   configPatches:
@@ -25,14 +24,14 @@ spec:
             typeUrl: type.googleapis.com/envoy.extensions.filters.http.wasm.v3.Wasm
             value:
               config:
-                name: portshift-outbound-filter
-                rootId: portshift-outbound-filter
+                name: trace-outbound-filter
+                rootId: trace-outbound-filter
                 vmConfig:
                   code:
                     local:
                       filename: /var/local/lib/wasm-filters/http-trace-filter.wasm
                   runtime: envoy.wasm.runtime.v8
-                  vmId: portshift-outbound-filter
+                  vmId: trace-outbound-filter
     - applyTo: CLUSTER
       match:
         context: SIDECAR_OUTBOUND

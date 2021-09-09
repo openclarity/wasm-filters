@@ -1,2 +1,2 @@
-/bin/*
+/bin/http-trace-filter.wasm
 .idea/
