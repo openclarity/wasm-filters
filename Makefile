@@ -20,6 +20,10 @@ docker_build:
 	@echo "Running make docker_build"
 	@DOCKER_BUILDKIT=1 docker build --file docker/Dockerfile.build.local --target bin --output bin/ .
 
+docker_release:
+	@echo "Running make docker_release"
+	@DOCKER_BUILDKIT=1 docker build --file docker/Dockerfile.build.local --target bin --output bin/release .
+
 clean:
 	$(GOCLEAN)
 	rm -f ./bin/*.wasm

@@ -1,0 +1,22 @@
+name: CI
+on:
+  pull_request:
+
+jobs:
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+
+    - name: Check out code
+      uses: actions/checkout@v2
+
+    - name: Build WASM release
+      run: make docker_release
+
+    # This step will evaluate the repo status and exit if found changes
+    # This should detect if the most up-to-date WASM binary was pushed
+    - name: Changes validation
+      run: |
+        [[ -z "$(git status --porcelain)" ]] || exit 1
