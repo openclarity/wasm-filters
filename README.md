@@ -82,7 +82,7 @@ The wasm filter binary will be in `bin/http-trace-filter.wasm`
 Set the binary path via environment variable
 
 ```sh
-WASM_FILTER_BINARY_PATH=bin/http-trace-filter.wasm
+export WASM_FILTER_BINARY_PATH=bin/http-trace-filter.wasm
 ```
 
 Then you can run the deploy script.
