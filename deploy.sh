@@ -19,6 +19,8 @@ function patch() {
 # read the envoy filter yml and substitute trace backend address and port 
 envoyFilter=`cat "envoyFilter.yaml" | sed "s/{{WASM_FILTER_TRACE_BACKEND_ADDRESS}}/$TraceBackendAddress/g" | sed "s/{{WASM_FILTER_TRACE_BACKEND_PORT}}/$TraceBackendPort/g"`
 
+echo "Using wasm binary ${BinaryPath}"
+
 for ns in "$@"
 do
     echo "Adding envoy wasm filter to all pods in namespace ${ns}"
