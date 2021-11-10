@@ -24,6 +24,8 @@ import (
 	"github.com/tetratelabs/proxy-wasm-go-sdk/proxywasm/types"
 )
 
+// This was taken from APIClarity generated telemetry client api.
+// We cant import this module from there since it includes package net which is not supported yet by tinygo.
 type Telemetry struct {
 	DestinationAddress   string    `json:"destinationAddress,omitempty"`
 	DestinationNamespace string    `json:"destinationNamespace,omitempty"`
@@ -310,9 +312,9 @@ func (ctx *TraceFilterContext) OnHttpStreamDone() {
 
 	ctx.Telemetry.DestinationNamespace = ""
 	// catalogue;sock-shop;catalogue;latest;Kubernetes
-	dst_workload, err := proxywasm.GetProperty([]string{"upstream_host_metadata", "filter_metadata", "istio", "workload"})
+	dstWorkload, err := proxywasm.GetProperty([]string{"upstream_host_metadata", "filter_metadata", "istio", "workload"})
 	if err == nil {
-		s := strings.Split(string(dst_workload), ";")
+		s := strings.Split(string(dstWorkload), ";")
 		if len(s) == 5 {
 			ctx.Telemetry.DestinationNamespace = s[1]
 		}
@@ -349,7 +351,7 @@ func sendAuthPayload(payload *Telemetry, clusterName string, subject string) err
 		payload.Request.Method, payload.Request.Path, payload.Request.Host, payload.Request.Common.Version, createJsonHeaders(payload.Request.Common.Headers), encodedBodyRequest, payload.Request.Common.TruncatedBody,
 		payload.Response.StatusCode, payload.Response.Common.Version, createJsonHeaders(payload.Response.Common.Headers), encodedBodyResponse, payload.Response.Common.TruncatedBody)
 
-	asHeader := [][2]string{{":method", "POST"}, {":authority", "scn"}, {":path", "/api/telemetry"}, {"nats-subject", subject}, {"accept", "*/*"}, {"Content-Type", "application/json"}, {"x-request-id", payload.RequestID}}
+	asHeader := [][2]string{{":method", "POST"}, {":authority", "apiclarity"}, {":path", "/api/telemetry"}, {"nats-subject", subject}, {"accept", "*/*"}, {"Content-Type", "application/json"}, {"x-request-id", payload.RequestID}}
 	if _, err := proxywasm.DispatchHttpCall(clusterName, asHeader, []byte(body), emptyTrailers,
 		httpCallTimeoutMs, httpCallResponseCallback); err != nil {
 		proxywasm.LogErrorf("Dispatch httpcall failed. %v", err)
