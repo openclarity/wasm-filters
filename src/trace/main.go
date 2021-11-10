@@ -24,36 +24,39 @@ import (
 	"github.com/tetratelabs/proxy-wasm-go-sdk/proxywasm/types"
 )
 
-// TODO need to move it to a public repo
-type (
-	SCNTelemetry struct {
-		RequestID            string       `json:"request_id"`
-		Scheme               string       `json:"scheme"`
-		DestinationAddress   string       `json:"destination_address"`
-		DestinationNamespace string       `json:"destination_namespace"`
-		SourceAddress        string       `json:"source_address"`
-		SCNTRequest          SCNTRequest  `json:"scnt_request"`
-		SCNTResponse         SCNTResponse `json:"scnt_response"`
-	}
+type Telemetry struct {
+	DestinationAddress   string    `json:"destinationAddress,omitempty"`
+	DestinationNamespace string    `json:"destinationNamespace,omitempty"`
+	Request              *Request  `json:"request,omitempty"`
+	RequestID            string    `json:"requestID,omitempty"`
+	Response             *Response `json:"response,omitempty"`
+	Scheme               string    `json:"scheme,omitempty"`
+	SourceAddress        string    `json:"sourceAddress,omitempty"`
+}
 
-	SCNTRequest struct {
-		Method string `json:"method"`
-		Path   string `json:"path"`
-		Host   string `json:"host"`
-		SCNTCommon
-	}
+type Request struct {
+	Common *Common `json:"common,omitempty"`
+	Host   string  `json:"host,omitempty"`
+	Method string  `json:"method,omitempty"`
+	Path   string  `json:"path,omitempty"`
+}
 
-	SCNTResponse struct {
-		StatusCode string `json:"status_code"`
-		SCNTCommon
-	}
-	SCNTCommon struct {
-		Version       string      `json:"version"`
-		Headers       [][2]string `json:"headers"`
-		Body          []byte      `json:"body"`
-		TruncatedBody bool        `json:"truncated_body"`
-	}
-)
+type Response struct {
+	Common     *Common `json:"common,omitempty"`
+	StatusCode string  `json:"statusCode,omitempty"`
+}
+
+type Common struct {
+	TruncatedBody bool      `json:"TruncatedBody,omitempty"`
+	Body          string    `json:"body,omitempty"`
+	Headers       []*Header `json:"headers"`
+	Version       string    `json:"version,omitempty"`
+}
+
+type Header struct {
+	Key   string `json:"key,omitempty"`
+	Value string `json:"value,omitempty"`
+}
 
 func main() {
 	proxywasm.SetVMContext(&vmContext{})
@@ -81,6 +84,18 @@ func (ctx *pluginContext) NewHttpContext(contextID uint32) types.HttpContext {
 		contextID:      contextID,
 		serverAddress:  ctx.serverAddress,
 		scnNATSSubject: ctx.scnNATSSubject,
+		Telemetry: Telemetry{
+			Request: &Request{
+				Common: &Common{
+					Headers: []*Header{},
+				},
+			},
+			Response: &Response{
+				Common: &Common{
+					Headers: []*Header{},
+				},
+			},
+		},
 	}
 }
 
@@ -94,7 +109,7 @@ type TraceFilterContext struct {
 	// The server to which the traces will be sent
 	serverAddress  string
 	scnNATSSubject string
-	SCNTelemetry
+	Telemetry
 }
 
 func (ctx *pluginContext) OnPluginStart(pluginConfigurationSize int) types.OnPluginStartStatus {
@@ -127,41 +142,44 @@ func (ctx *TraceFilterContext) OnHttpRequestHeaders(numHeaders int, endOfStream 
 	var method string
 	var xRequestID string
 
-	if ctx.SCNTelemetry.SCNTRequest.Path == "" {
+	if ctx.Telemetry.Request.Path == "" {
 		path, err = proxywasm.GetHttpRequestHeader(":path")
 		if err != nil {
 			proxywasm.LogWarnf("Failed to get :path header: %v", err)
 		}
-		ctx.SCNTelemetry.SCNTRequest.Path = path
+		ctx.Telemetry.Request.Path = path
 	}
 
-	if ctx.SCNTelemetry.SCNTRequest.Host == "" {
+	if ctx.Telemetry.Request.Host == "" {
 		host, err = proxywasm.GetHttpRequestHeader(":authority")
 		if err != nil {
 			proxywasm.LogWarnf("Failed to get :authority header: %v", err)
 		}
-		ctx.SCNTelemetry.SCNTRequest.Host = host
+		ctx.Telemetry.Request.Host = host
 		// Host: Header is removed, add it back.
-		ctx.SCNTelemetry.SCNTRequest.Headers = append(ctx.SCNTelemetry.SCNTRequest.Headers, [2]string{"host", host})
+		ctx.Telemetry.Request.Common.Headers = append(ctx.Telemetry.Request.Common.Headers, &Header{
+			Key:   "host",
+			Value: host,
+		})
 	}
 
-	if ctx.SCNTelemetry.SCNTRequest.Method == "" {
+	if ctx.Telemetry.Request.Method == "" {
 		method, err = proxywasm.GetHttpRequestHeader(":method")
 		if err != nil {
 			proxywasm.LogWarnf("Failed to get :method header: %v", err)
 		}
-		ctx.SCNTelemetry.SCNTRequest.Method = method
+		ctx.Telemetry.Request.Method = method
 	}
 
-	if ctx.SCNTelemetry.RequestID == "" {
+	if ctx.Telemetry.RequestID == "" {
 		xRequestID, err = proxywasm.GetHttpRequestHeader("x-request-id")
 		if err != nil {
 			proxywasm.LogWarnf("Failed to get x-request-id header: %v", err)
 		}
-		ctx.SCNTelemetry.RequestID = xRequestID
+		ctx.Telemetry.RequestID = xRequestID
 	}
 
-	ctx.SCNTelemetry.SCNTRequest.Headers = append(ctx.SCNTelemetry.SCNTRequest.Headers, removeEnvoyPseudoHeaders(headers)...)
+	ctx.Telemetry.Request.Common.Headers = append(ctx.Telemetry.Request.Common.Headers, removeEnvoyPseudoHeaders(headers)...)
 
 	return types.ActionContinue
 }
@@ -173,16 +191,16 @@ const MaxBodySize = 1000 * 1000
  */
 func (ctx *TraceFilterContext) OnHttpRequestBody(bodySize int, endOfStream bool) types.Action {
 	proxywasm.LogDebugf("OnHttpRequestBody: contextID: %v. rootContextID: %v, endOfStream: %v", ctx.contextID, ctx.rootContextID, endOfStream)
-	if ctx.shouldShortCircuitOnBody(bodySize, ctx.SCNTelemetry.SCNTRequest.TruncatedBody) {
+	if ctx.shouldShortCircuitOnBody(bodySize, ctx.Telemetry.Request.Common.TruncatedBody) {
 		return types.ActionContinue
 	}
 	ctx.totalRequestBodySize += bodySize
 	// if body size is too big, dont send it.
 	if ctx.totalRequestBodySize > MaxBodySize {
 		proxywasm.LogWarnf("Request body size has exceeded the limit of 1MB. Not sending")
-		ctx.SCNTelemetry.SCNTRequest.TruncatedBody = true
+		ctx.Telemetry.Request.Common.TruncatedBody = true
 		// clear body
-		ctx.SCNTelemetry.SCNTRequest.Body = []byte{}
+		ctx.Telemetry.Request.Common.Body = ""
 		return types.ActionContinue
 	}
 	body, err := proxywasm.GetHttpRequestBody(0, bodySize)
@@ -191,7 +209,7 @@ func (ctx *TraceFilterContext) OnHttpRequestBody(bodySize int, endOfStream bool)
 		ctx.skipStream = true
 		return types.ActionContinue
 	}
-	ctx.SCNTelemetry.SCNTRequest.Body = append(ctx.SCNTelemetry.SCNTRequest.Body, body...)
+	ctx.Telemetry.Request.Common.Body = ctx.Telemetry.Request.Common.Body + string(body)
 
 	return types.ActionContinue
 }
@@ -214,15 +232,15 @@ func (ctx *TraceFilterContext) OnHttpResponseHeaders(numHeaders int, endOfStream
 	proxywasm.LogDebugf("Response headers: %v", headers)
 
 	var statusCode string
-	if ctx.SCNTelemetry.SCNTResponse.StatusCode == "" {
+	if ctx.Telemetry.Response.StatusCode == "" {
 		statusCode, err = proxywasm.GetHttpResponseHeader(":status")
 		if err != nil {
 			proxywasm.LogErrorf("Failed to get status code: %v", err)
 		}
-		ctx.SCNTelemetry.SCNTResponse.StatusCode = statusCode
+		ctx.Telemetry.Response.StatusCode = statusCode
 	}
 
-	ctx.SCNTelemetry.SCNTResponse.Headers = append(ctx.SCNTelemetry.SCNTResponse.Headers, removeEnvoyPseudoHeaders(headers)...)
+	ctx.Telemetry.Response.Common.Headers = append(ctx.Telemetry.Response.Common.Headers, removeEnvoyPseudoHeaders(headers)...)
 
 	return types.ActionContinue
 }
@@ -232,7 +250,7 @@ func (ctx *TraceFilterContext) OnHttpResponseHeaders(numHeaders int, endOfStream
  */
 func (ctx *TraceFilterContext) OnHttpResponseBody(bodySize int, endOfStream bool) types.Action {
 	proxywasm.LogDebugf("OnHttpResponseBody: contextID: %v. rootContextID: %v, endOfStream: %v", ctx.contextID, ctx.rootContextID, endOfStream)
-	if ctx.shouldShortCircuitOnBody(bodySize, ctx.SCNTelemetry.SCNTResponse.TruncatedBody) {
+	if ctx.shouldShortCircuitOnBody(bodySize, ctx.Telemetry.Response.Common.TruncatedBody) {
 		return types.ActionContinue
 	}
 
@@ -240,9 +258,9 @@ func (ctx *TraceFilterContext) OnHttpResponseBody(bodySize int, endOfStream bool
 	// if body size is too big, dont send it.
 	if ctx.totalResponseBodySize > MaxBodySize {
 		proxywasm.LogWarnf("Response body size has exceeded the limit of 1MB. Not sending")
-		ctx.SCNTelemetry.SCNTResponse.TruncatedBody = true
+		ctx.Telemetry.Response.Common.TruncatedBody = true
 		// clear body
-		ctx.SCNTelemetry.SCNTResponse.Body = []byte{}
+		ctx.Telemetry.Response.Common.Body = ""
 		return types.ActionContinue
 	}
 
@@ -252,7 +270,7 @@ func (ctx *TraceFilterContext) OnHttpResponseBody(bodySize int, endOfStream bool
 		ctx.skipStream = true
 		return types.ActionContinue
 	}
-	ctx.SCNTelemetry.SCNTResponse.Body = append(ctx.SCNTelemetry.SCNTResponse.Body, body...)
+	ctx.Telemetry.Response.Common.Body = ctx.Telemetry.Response.Common.Body + string(body)
 
 	return types.ActionContinue
 }
@@ -287,16 +305,16 @@ func (ctx *TraceFilterContext) OnHttpStreamDone() {
 		proxywasm.LogError("Failed to get source address")
 		sourceAddress = []byte("")
 	}
-	ctx.SCNTelemetry.DestinationAddress = string(destinationAddress)
-	ctx.SCNTelemetry.SourceAddress = string(sourceAddress)
+	ctx.Telemetry.DestinationAddress = string(destinationAddress)
+	ctx.Telemetry.SourceAddress = string(sourceAddress)
 
-	ctx.SCNTelemetry.DestinationNamespace = ""
+	ctx.Telemetry.DestinationNamespace = ""
 	// catalogue;sock-shop;catalogue;latest;Kubernetes
-	dst_workload, err := proxywasm.GetProperty([]string{"upstream_host_metadata", "filter_metadata","istio", "workload"})
+	dst_workload, err := proxywasm.GetProperty([]string{"upstream_host_metadata", "filter_metadata", "istio", "workload"})
 	if err == nil {
 		s := strings.Split(string(dst_workload), ";")
 		if len(s) == 5 {
-			ctx.SCNTelemetry.DestinationNamespace = s[1]
+			ctx.Telemetry.DestinationNamespace = s[1]
 		}
 	}
 
@@ -306,12 +324,12 @@ func (ctx *TraceFilterContext) OnHttpStreamDone() {
 		return
 	}
 
-	if err := sendAuthPayload(&ctx.SCNTelemetry, ctx.serverAddress, ctx.scnNATSSubject); err != nil {
+	if err := sendAuthPayload(&ctx.Telemetry, ctx.serverAddress, ctx.scnNATSSubject); err != nil {
 		proxywasm.LogErrorf("Failed to send payload. %v", err)
 	}
 }
 
-const jsonPayload string = `{"request_id":"%v","scheme":"%v","destination_address":"%v","destination_namespace":"%v","source_address":"%v","scnt_request":{"method":"%v","path":"%v","host":"%v","version":"%v","headers":%v,"body":"%v","truncated_body":%v},"scnt_response":{"status_code":"%v","version":"%v","headers":%v,"body":"%v","truncated_body": %v}}`
+const jsonPayload string = `{"requestID":"%v","scheme":"%v","destinationAddress":"%v","destinationNamespace":"%v","sourceAddress":"%v","request":{"method":"%v","path":"%v","host":"%v","common": {"version":"%v","headers":%v,"body":"%v","TruncatedBody":%v}},"response":{"statusCode":"%v","common": {"version":"%v","headers":%v,"body":"%v","TruncatedBody": %v}}}`
 
 const (
 	httpCallTimeoutMs = 15000
@@ -319,19 +337,19 @@ const (
 
 var emptyTrailers = [][2]string{}
 
-func sendAuthPayload(payload *SCNTelemetry, clusterName string, subject string) error {
-	encodedBodyRequest := base64.StdEncoding.EncodeToString(payload.SCNTRequest.Body)
-	encodedBodyResponse := base64.StdEncoding.EncodeToString(payload.SCNTResponse.Body)
+func sendAuthPayload(payload *Telemetry, clusterName string, subject string) error {
+	encodedBodyRequest := base64.StdEncoding.EncodeToString([]byte(payload.Request.Common.Body))
+	encodedBodyResponse := base64.StdEncoding.EncodeToString([]byte(payload.Response.Common.Body))
 
 	body := fmt.Sprintf(jsonPayload,
 		payload.RequestID, payload.Scheme,
 		payload.DestinationAddress,
 		payload.DestinationNamespace,
 		payload.SourceAddress,
-		payload.SCNTRequest.Method, payload.SCNTRequest.Path, payload.SCNTRequest.Host, payload.SCNTRequest.Version, createJsonHeaders(payload.SCNTRequest.Headers), encodedBodyRequest, payload.SCNTRequest.TruncatedBody,
-		payload.SCNTResponse.StatusCode, payload.SCNTResponse.Version, createJsonHeaders(payload.SCNTResponse.Headers), encodedBodyResponse, payload.SCNTResponse.TruncatedBody)
+		payload.Request.Method, payload.Request.Path, payload.Request.Host, payload.Request.Common.Version, createJsonHeaders(payload.Request.Common.Headers), encodedBodyRequest, payload.Request.Common.TruncatedBody,
+		payload.Response.StatusCode, payload.Response.Common.Version, createJsonHeaders(payload.Response.Common.Headers), encodedBodyResponse, payload.Response.Common.TruncatedBody)
 
-	asHeader := [][2]string{{":method", "POST"}, {":authority", "scn"}, {":path", "/publish"}, {"nats-subject", subject}, {"accept", "*/*"}, {"x-request-id", payload.RequestID}}
+	asHeader := [][2]string{{":method", "POST"}, {":authority", "scn"}, {":path", "/api/telemetry"}, {"nats-subject", subject}, {"accept", "*/*"}, {"Content-Type", "application/json"}, {"x-request-id", payload.RequestID}}
 	if _, err := proxywasm.DispatchHttpCall(clusterName, asHeader, []byte(body), emptyTrailers,
 		httpCallTimeoutMs, httpCallResponseCallback); err != nil {
 		proxywasm.LogErrorf("Dispatch httpcall failed. %v", err)
@@ -340,29 +358,32 @@ func sendAuthPayload(payload *SCNTelemetry, clusterName string, subject string) 
 	return nil
 }
 
-func removeEnvoyPseudoHeaders(headers [][2]string) [][2]string {
-	var ret [][2]string
+func removeEnvoyPseudoHeaders(headers [][2]string) []*Header {
+	var ret []*Header
 	for _, header := range headers {
 		if strings.HasPrefix(header[0], ":") || strings.HasPrefix(header[0], "x-envoy-") {
 			continue
 		}
-		ret = append(ret, header)
+		ret = append(ret, &Header{
+			Key:   header[0],
+			Value: header[1],
+		})
 	}
 	return ret
 }
 
-func createJsonHeaders(headers [][2]string) string {
+func createJsonHeaders(headers []*Header) string {
 	ret := "["
 
 	headersLen := len(headers)
 
 	for i, header := range headers {
-		h0 := strings.ReplaceAll(header[0], "\"", "\\\"")
-		h1 := strings.ReplaceAll(header[1], "\"", "\\\"")
+		h0 := strings.ReplaceAll(header.Key, "\"", "\\\"")
+		h1 := strings.ReplaceAll(header.Value, "\"", "\\\"")
 		if i != headersLen-1 {
-			ret += fmt.Sprintf("[\"%v\", \"%v\"],", h0, h1)
+			ret += fmt.Sprintf("{\"key\": \"%v\",\"value\": \"%v\"},", h0, h1)
 		} else {
-			ret += fmt.Sprintf("[\"%v\", \"%v\"]", h0, h1)
+			ret += fmt.Sprintf("{\"key\": \"%v\",\"value\": \"%v\"}", h0, h1)
 		}
 	}
 	ret += "]"
