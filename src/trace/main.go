@@ -351,7 +351,7 @@ func sendAuthPayload(payload *Telemetry, clusterName string, subject string) err
 		payload.Request.Method, payload.Request.Path, payload.Request.Host, payload.Request.Common.Version, createJsonHeaders(payload.Request.Common.Headers), encodedBodyRequest, payload.Request.Common.TruncatedBody,
 		payload.Response.StatusCode, payload.Response.Common.Version, createJsonHeaders(payload.Response.Common.Headers), encodedBodyResponse, payload.Response.Common.TruncatedBody)
 
-	asHeader := [][2]string{{":method", "POST"}, {":authority", "apiclarity"}, {":path", "/api/telemetry"}, {"nats-subject", subject}, {"accept", "*/*"}, {"Content-Type", "application/json"}, {"x-request-id", payload.RequestID}}
+	asHeader := [][2]string{{":method", "POST"}, {":authority", "apiclarity"}, {":path", "/api/telemetry"}, {"accept", "*/*"}, {"Content-Type", "application/json"}, {"x-request-id", payload.RequestID}}
 	if _, err := proxywasm.DispatchHttpCall(clusterName, asHeader, []byte(body), emptyTrailers,
 		httpCallTimeoutMs, httpCallResponseCallback); err != nil {
 		proxywasm.LogErrorf("Dispatch httpcall failed. %v", err)
