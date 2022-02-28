@@ -302,6 +302,16 @@ func (ctx *TraceFilterContext) OnHttpStreamDone() {
 		proxywasm.LogError("Failed to get destination address")
 		destinationAddress = []byte("")
 	}
+	reqTime, err := proxywasm.GetProperty([]string{"request", "time"})
+	if err != nil {
+		proxywasm.LogError("Failed to get request time")
+	}
+	reqDuration, err := proxywasm.GetProperty([]string{"request", "duration"})
+	if err != nil {
+		proxywasm.LogError("Failed to get request duration")
+	}
+	proxywasm.LogErrorf("request time: %v", reqTime)
+	proxywasm.LogErrorf("request duration: %v", reqDuration)
 	sourceAddress, err := proxywasm.GetProperty([]string{"source", "address"})
 	if err != nil {
 		proxywasm.LogError("Failed to get source address")
