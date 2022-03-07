@@ -17,8 +17,10 @@ package main
 
 import (
 	"encoding/base64"
+	"encoding/binary"
 	"fmt"
 	"strings"
+	"unsafe"
 
 	"github.com/tetratelabs/proxy-wasm-go-sdk/proxywasm"
 	"github.com/tetratelabs/proxy-wasm-go-sdk/proxywasm/types"
@@ -53,12 +55,15 @@ type Common struct {
 	Body          string    `json:"body,omitempty"`
 	Headers       []*Header `json:"headers"`
 	Version       string    `json:"version,omitempty"`
+	Time          int64     `json:"time,omitempty"`
 }
 
 type Header struct {
 	Key   string `json:"key,omitempty"`
 	Value string `json:"value,omitempty"`
 }
+
+var nativeEndian binary.ByteOrder
 
 func main() {
 	proxywasm.SetVMContext(&vmContext{})
@@ -69,6 +74,17 @@ type vmContext struct {
 }
 
 func (*vmContext) NewPluginContext(contextID uint32) types.PluginContext {
+	buf := [2]byte{}
+	*(*uint16)(unsafe.Pointer(&buf[0])) = uint16(0xABCD)
+
+	switch buf {
+	case [2]byte{0xCD, 0xAB}:
+		nativeEndian = binary.LittleEndian
+	case [2]byte{0xAB, 0xCD}:
+		nativeEndian = binary.BigEndian
+	default:
+		panic("Could not determine native endianness.")
+	}
 	return &pluginContext{}
 }
 
@@ -224,6 +240,7 @@ func (ctx *TraceFilterContext) OnHttpResponseHeaders(numHeaders int, endOfStream
 	if ctx.skipStream {
 		return types.ActionContinue
 	}
+
 	headers, err := proxywasm.GetHttpResponseHeaders()
 	if err != nil {
 		proxywasm.LogErrorf("Failed to get response headers: %v", err)
@@ -310,8 +327,11 @@ func (ctx *TraceFilterContext) OnHttpStreamDone() {
 	if err != nil {
 		proxywasm.LogError("Failed to get request duration")
 	}
-	proxywasm.LogErrorf("request time: %v", reqTime)
-	proxywasm.LogErrorf("request duration: %v", reqDuration)
+	reqT := nativeEndian.Uint64(reqTime)
+	reqD := nativeEndian.Uint64(reqDuration)
+
+	ctx.Telemetry.Request.Common.Time = int64(reqT)
+	ctx.Telemetry.Response.Common.Time = int64(reqT + reqD)
 	sourceAddress, err := proxywasm.GetProperty([]string{"source", "address"})
 	if err != nil {
 		proxywasm.LogError("Failed to get source address")
@@ -341,7 +361,7 @@ func (ctx *TraceFilterContext) OnHttpStreamDone() {
 	}
 }
 
-const jsonPayload string = `{"requestID":"%v","scheme":"%v","destinationAddress":"%v","destinationNamespace":"%v","sourceAddress":"%v","request":{"method":"%v","path":"%v","host":"%v","common": {"version":"%v","headers":%v,"body":"%v","TruncatedBody":%v}},"response":{"statusCode":"%v","common": {"version":"%v","headers":%v,"body":"%v","TruncatedBody": %v}}}`
+const jsonPayload string = `{"requestID":"%v","scheme":"%v","destinationAddress":"%v","destinationNamespace":"%v","sourceAddress":"%v","request":{"method":"%v","path":"%v","host":"%v","common": {"version":"%v","headers":%v,"body":"%v","TruncatedBody":%v,"time":%v}},"response":{"statusCode":"%v","common": {"version":"%v","headers":%v,"body":"%v","TruncatedBody": %v,"time":%v}}}`
 
 const (
 	httpCallTimeoutMs = 15000
@@ -358,8 +378,8 @@ func sendAuthPayload(payload *Telemetry, clusterName string, subject string) err
 		payload.DestinationAddress,
 		payload.DestinationNamespace,
 		payload.SourceAddress,
-		payload.Request.Method, payload.Request.Path, payload.Request.Host, payload.Request.Common.Version, createJsonHeaders(payload.Request.Common.Headers), encodedBodyRequest, payload.Request.Common.TruncatedBody,
-		payload.Response.StatusCode, payload.Response.Common.Version, createJsonHeaders(payload.Response.Common.Headers), encodedBodyResponse, payload.Response.Common.TruncatedBody)
+		payload.Request.Method, payload.Request.Path, payload.Request.Host, payload.Request.Common.Version, createJsonHeaders(payload.Request.Common.Headers), encodedBodyRequest, payload.Request.Common.TruncatedBody, payload.Request.Common.Time,
+		payload.Response.StatusCode, payload.Response.Common.Version, createJsonHeaders(payload.Response.Common.Headers), encodedBodyResponse, payload.Response.Common.TruncatedBody, payload.Response.Common.Time)
 
 	asHeader := [][2]string{{":method", "POST"}, {":authority", "apiclarity"}, {":path", "/api/telemetry"}, {"accept", "*/*"}, {"Content-Type", "application/json"}, {"x-request-id", payload.RequestID}}
 	if _, err := proxywasm.DispatchHttpCall(clusterName, asHeader, []byte(body), emptyTrailers,
