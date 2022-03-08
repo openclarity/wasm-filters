@@ -438,6 +438,7 @@ func setEndianness() error {
 	case [2]byte{0xAB, 0xCD}:
 		nativeEndian = binary.BigEndian
 	default:
+		nativeEndian = binary.LittleEndian
 		return fmt.Errorf("could not determine native endianness")
 	}
 	return nil
