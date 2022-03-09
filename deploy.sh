@@ -1,6 +1,6 @@
 #!/bin/bash
 ConfigMapName="${WASM_FILTER_CONFIG_MAP_NAME:-wasm-filter}"
-TraceBackendAddress="${WASM_FILTER_TRACE_BACKEND_ADDRESS:-apiclarity.apiclarity.svc.cluster.local}"
+TraceBackendAddress="${WASM_FILTER_TRACE_BACKEND_ADDRESS:-apiclarity-apiclarity.apiclarity.svc.cluster.local}"
 TraceBackendPort="${WASM_FILTER_TRACE_BACKEND_PORT:-9000}"
 BinaryPath="${WASM_FILTER_BINARY_PATH:-bin/release/http-trace-filter.wasm}"
 
