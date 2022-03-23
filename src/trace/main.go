@@ -300,6 +300,8 @@ func httpCallResponseCallback(numHeaders, bodySize, numTrailers int) {
 	}
 }
 
+const Millisecond = 1000 * 1000
+
 /**
  * override
  */
@@ -319,8 +321,8 @@ func (ctx *TraceFilterContext) OnHttpStreamDone() {
 	if err != nil {
 		proxywasm.LogError("Failed to get request duration")
 	}
-	reqT := nativeEndian.Uint64(reqTime)
-	reqD := nativeEndian.Uint64(reqDuration)
+	reqT := nativeEndian.Uint64(reqTime) / (Millisecond)
+	reqD := nativeEndian.Uint64(reqDuration) / (Millisecond)
 
 	ctx.Telemetry.Request.Common.Time = int64(reqT)
 	ctx.Telemetry.Response.Common.Time = int64(reqT + reqD)
