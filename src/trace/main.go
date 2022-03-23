@@ -300,6 +300,8 @@ func httpCallResponseCallback(numHeaders, bodySize, numTrailers int) {
 	}
 }
 
+const Millisecond = 1000 * 1000
+
 /**
  * override
  */
@@ -311,19 +313,19 @@ func (ctx *TraceFilterContext) OnHttpStreamDone() {
 		proxywasm.LogError("Failed to get destination address")
 		destinationAddress = []byte("")
 	}
-	reqTime, err := proxywasm.GetProperty([]string{"request", "time"})
+	reqTimeNano, err := proxywasm.GetProperty([]string{"request", "time"})
 	if err != nil {
 		proxywasm.LogError("Failed to get request time")
 	}
-	reqDuration, err := proxywasm.GetProperty([]string{"request", "duration"})
+	reqDurationNano, err := proxywasm.GetProperty([]string{"request", "duration"})
 	if err != nil {
 		proxywasm.LogError("Failed to get request duration")
 	}
-	reqT := nativeEndian.Uint64(reqTime)
-	reqD := nativeEndian.Uint64(reqDuration)
+	reqTMilli := nativeEndian.Uint64(reqTimeNano) / (Millisecond)
+	reqDMilli := nativeEndian.Uint64(reqDurationNano) / (Millisecond)
 
-	ctx.Telemetry.Request.Common.Time = int64(reqT)
-	ctx.Telemetry.Response.Common.Time = int64(reqT + reqD)
+	ctx.Telemetry.Request.Common.Time = int64(reqTMilli)
+	ctx.Telemetry.Response.Common.Time = int64(reqTMilli + reqDMilli)
 	sourceAddress, err := proxywasm.GetProperty([]string{"source", "address"})
 	if err != nil {
 		proxywasm.LogError("Failed to get source address")
