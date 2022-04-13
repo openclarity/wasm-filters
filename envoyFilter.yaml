@@ -72,4 +72,3 @@ spec:
                           protocol: TCP
                           address: {{WASM_FILTER_TRACE_BACKEND_ADDRESS}}
                           port_value: {{WASM_FILTER_TRACE_SAMPLING_PORT}}
-

@@ -90,6 +90,7 @@ type pluginContext struct {
 	serverAddress    string
 	scnNATSSubject   string
 	scnExampleConfig string
+	enableTraceSampling bool
 	hostsToTrace     map[string]struct{}
 }
 
@@ -140,12 +141,14 @@ func (ctx *pluginContext) OnPluginStart(pluginConfigurationSize int) types.OnPlu
 	ctx.scnExampleConfig = string(data)
 	ctx.serverAddress = "trace_analyzer"          // This needs to be read from the configuration
 	ctx.scnNATSSubject = "portshift.messaging.io" // This needs to be read from the configuration
+	ctx.enableTraceSampling = false // This needs to be read from the configuration
 
-	ctx.callGetHostsToTrace()
-
-	if err := proxywasm.SetTickPeriodMilliSeconds(tickMilliseconds); err != nil {
-		proxywasm.LogCriticalf("failed to set tick period: %v", err)
-		return types.OnPluginStartStatusFailed
+	if ctx.enableTraceSampling {
+		ctx.callGetHostsToTrace()
+		if err := proxywasm.SetTickPeriodMilliSeconds(tickMilliseconds); err != nil {
+			proxywasm.LogCriticalf("failed to set tick period: %v", err)
+			return types.OnPluginStartStatusFailed
+		}
 	}
 
 	return types.OnPluginStartStatusOK
