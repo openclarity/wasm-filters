@@ -26,6 +26,10 @@ spec:
               config:
                 name: trace-outbound-filter
                 rootId: trace-outbound-filter
+                configuration:
+                  "@type": "type.googleapis.com/google.protobuf.StringValue"
+                  value: |
+                    {{PLUGIN_CONFIG}}
                 vmConfig:
                   code:
                     local:

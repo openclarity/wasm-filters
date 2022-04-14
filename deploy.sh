@@ -1,9 +1,10 @@
 #!/bin/bash
 ConfigMapName="${WASM_FILTER_CONFIG_MAP_NAME:-wasm-filter}"
 TraceBackendAddress="${WASM_FILTER_TRACE_BACKEND_ADDRESS:-apiclarity-apiclarity.apiclarity.svc.cluster.local}"
+BinaryPath="${WASM_FILTER_BINARY_PATH:-bin/release/http-trace-filter.wasm}"
 TraceBackendPort="${WASM_FILTER_TRACE_BACKEND_PORT:-9000}"
 TraceSamplingPort="${WASM_FILTER_TRACE_SAMPLING_PORT:-9990}"
-BinaryPath="${WASM_FILTER_BINARY_PATH:-bin/release/http-trace-filter.wasm}"
+TraceSamplingEnabled="${TRACE_SAMPLING_ENABLED:-false}"
 
 # patch all the pods under this controller with annotations that mounts the wasm filter from the configmap into the envoy proxy
 function patch() {
@@ -19,6 +20,14 @@ function patch() {
 
 # read the envoy filter yml and substitute trace backend address and port 
 envoyFilter=`cat "envoyFilter.yaml" | sed "s/{{WASM_FILTER_TRACE_BACKEND_ADDRESS}}/$TraceBackendAddress/g" | sed "s/{{WASM_FILTER_TRACE_BACKEND_PORT}}/$TraceBackendPort/g" | sed "s/{{WASM_FILTER_TRACE_SAMPLING_PORT}}/$TraceSamplingPort/g"`
+
+# TODO set plugin config
+#if [ "$TraceSamplingEnabled" == "true" ]
+#  envoyFilter=`echo $envoyFilter | sed "s/{{PLUGIN_CONFIG}}/{"}/g"`
+
+then
+else
+fi
 
 echo "Using wasm binary ${BinaryPath}"
 

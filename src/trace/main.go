@@ -19,10 +19,11 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"fmt"
-	"github.com/valyala/fastjson"
 	"net/url"
 	"strings"
 	"unsafe"
+
+	"github.com/valyala/fastjson"
 
 	"github.com/tetratelabs/proxy-wasm-go-sdk/proxywasm"
 	"github.com/tetratelabs/proxy-wasm-go-sdk/proxywasm/types"
@@ -65,6 +66,10 @@ type Header struct {
 	Value string `json:"value,omitempty"`
 }
 
+type Config struct {
+	EnableTraceSampling string  `json:"enable_trace_sampling,omitempty"`
+}
+
 var nativeEndian binary.ByteOrder
 
 const tickMilliseconds uint32 = 60000 // 1 Minute
@@ -87,11 +92,10 @@ func (*vmContext) NewPluginContext(contextID uint32) types.PluginContext {
 type pluginContext struct {
 	types.DefaultPluginContext
 	// The server to which the traces will be sent
-	serverAddress    string
-	scnNATSSubject   string
-	scnExampleConfig string
+	serverAddress       string
+	scnNATSSubject      string
 	enableTraceSampling bool
-	hostsToTrace     map[string]struct{}
+	hostsToTrace        map[string]struct{}
 }
 
 func (ctx *pluginContext) NewHttpContext(contextID uint32) types.HttpContext {
@@ -138,10 +142,12 @@ func (ctx *pluginContext) OnPluginStart(pluginConfigurationSize int) types.OnPlu
 	if err != nil {
 		proxywasm.LogWarnf("No TraceFilter plugin configuration. Will use defaults")
 	}
-	ctx.scnExampleConfig = string(data)
+
+
 	ctx.serverAddress = "trace_analyzer"          // This needs to be read from the configuration
 	ctx.scnNATSSubject = "portshift.messaging.io" // This needs to be read from the configuration
-	ctx.enableTraceSampling = false // This needs to be read from the configuration
+	// TODO once we will have more things to configure, we can extract configuration in a better way. for now, since we only have enableTraceSampling configuration, I will just check that value
+	ctx.enableTraceSampling = len(data) != 0
 
 	if ctx.enableTraceSampling {
 		ctx.callGetHostsToTrace()
@@ -153,6 +159,7 @@ func (ctx *pluginContext) OnPluginStart(pluginConfigurationSize int) types.OnPlu
 
 	return types.OnPluginStartStatusOK
 }
+
 func (ctx *pluginContext) getHostsToTraceCallBack(_, bodySize, _ int) {
 	responseBody, err := proxywasm.GetHttpCallResponseBody(0, bodySize)
 	if err != nil {
@@ -175,7 +182,7 @@ func (ctx *pluginContext) getHostsToTraceCallBack(_, bodySize, _ int) {
 
 // getHostsToTrace helper function that received the callback response body (GET /api/hostsToTrace)
 // and extract from it the list of hosts to trace
-// swagger can be found in https://wwwin-github.cisco.com/eti/trace-sampling-manager/blob/master/api/swagger.yaml
+// swagger can be found in https://github.com/apiclarity/trace-sampling-manager/tree/tsm/api // TODO update link
 func getHostsToTrace(responseBody []byte) (map[string]struct{}, error) {
 	var parser fastjson.Parser
 
@@ -487,22 +494,6 @@ func sendAuthPayload(payload *Telemetry, clusterName string, subject string) err
 	return nil
 }
 
-func setEndianness() error {
-	buf := [2]byte{}
-	*(*uint16)(unsafe.Pointer(&buf[0])) = uint16(0xABCD)
-
-	switch buf {
-	case [2]byte{0xCD, 0xAB}:
-		nativeEndian = binary.LittleEndian
-	case [2]byte{0xAB, 0xCD}:
-		nativeEndian = binary.BigEndian
-	default:
-		nativeEndian = binary.LittleEndian
-		return fmt.Errorf("could not determine native endianness")
-	}
-	return nil
-}
-
 func removeEnvoyPseudoHeaders(headers [][2]string) []*Header {
 	var ret []*Header
 	for _, header := range headers {
@@ -619,4 +610,20 @@ func fixHostname(host, namespace string) (string, bool, error) {
 	}
 
 	return retHost, true, nil
+}
+
+func setEndianness() error {
+	buf := [2]byte{}
+	*(*uint16)(unsafe.Pointer(&buf[0])) = uint16(0xABCD)
+
+	switch buf {
+	case [2]byte{0xCD, 0xAB}:
+		nativeEndian = binary.LittleEndian
+	case [2]byte{0xAB, 0xCD}:
+		nativeEndian = binary.BigEndian
+	default:
+		nativeEndian = binary.LittleEndian
+		return fmt.Errorf("could not determine native endianness")
+	}
+	return nil
 }
