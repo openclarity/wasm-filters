@@ -100,11 +100,13 @@ type pluginContext struct {
 
 func (ctx *pluginContext) NewHttpContext(contextID uint32) types.HttpContext {
 	proxywasm.LogDebugf("Called new http context. contextID: %v (we can use the scnExampleConfig here ...)", contextID)
+
 	return &TraceFilterContext{
 		contextID:      contextID,
 		serverAddress:  ctx.serverAddress,
 		scnNATSSubject: ctx.scnNATSSubject,
 		hostsToTrace:   ctx.hostsToTrace,
+		enableTraceSampling: ctx.enableTraceSampling,
 		Telemetry: Telemetry{
 			Request: &Request{
 				Common: &Common{
@@ -133,16 +135,16 @@ type TraceFilterContext struct {
 
 	Telemetry
 
+	enableTraceSampling bool
 	hostsToTrace map[string]struct{}
 	isHostFixed  bool
 }
 
-func (ctx *pluginContext) OnPluginStart(pluginConfigurationSize int) types.OnPluginStartStatus {
-	data, err := proxywasm.GetPluginConfiguration(pluginConfigurationSize)
+func (ctx *pluginContext) OnPluginStart(_ int) types.OnPluginStartStatus {
+	data, err := proxywasm.GetPluginConfiguration()
 	if err != nil {
 		proxywasm.LogWarnf("No TraceFilter plugin configuration. Will use defaults")
 	}
-
 
 	ctx.serverAddress = "trace_analyzer"          // This needs to be read from the configuration
 	ctx.scnNATSSubject = "portshift.messaging.io" // This needs to be read from the configuration
@@ -207,7 +209,7 @@ func (ctx *pluginContext) OnTick() {
 
 func (ctx *pluginContext) callGetHostsToTrace() {
 	hs := [][2]string{
-		{":method", "GET"}, {":authority", "trace-sampling-manager"}, {":path", "/api/hostsToTrace"}, {"accept", "*/*"},
+		{":method", "GET"}, {":authority", "apiclarity"}, {":path", "/api/hostsToTrace"}, {"accept", "*/*"},
 	}
 	proxywasm.LogDebugf("Retrieving hosts to trace from trace-sampling-manager")
 	if _, err := proxywasm.DispatchHttpCall("trace-sampling-manager", hs, nil, emptyTrailers,
@@ -220,6 +222,10 @@ func (ctx *pluginContext) callGetHostsToTrace() {
  * override
  */
 func (ctx *TraceFilterContext) OnHttpRequestHeaders(numHeaders int, endOfStream bool) types.Action {
+	if ctx.skipStream {
+		return types.ActionContinue
+	}
+
 	headers, err := proxywasm.GetHttpRequestHeaders()
 	if err != nil {
 		proxywasm.LogErrorf("Failed to get request headers: %v", err)
@@ -234,14 +240,6 @@ func (ctx *TraceFilterContext) OnHttpRequestHeaders(numHeaders int, endOfStream 
 	var host string
 	var method string
 	var xRequestID string
-
-	if ctx.Telemetry.Request.Path == "" {
-		path, err = proxywasm.GetHttpRequestHeader(":path")
-		if err != nil {
-			proxywasm.LogWarnf("Failed to get :path header: %v", err)
-		}
-		ctx.Telemetry.Request.Path = path
-	}
 
 	if ctx.Telemetry.Request.Host == "" {
 		host, err = proxywasm.GetHttpRequestHeader(":authority")
@@ -266,6 +264,14 @@ func (ctx *TraceFilterContext) OnHttpRequestHeaders(numHeaders int, endOfStream 
 	if !ctx.shouldTrace() {
 		ctx.skipStream = true
 		return types.ActionContinue
+	}
+
+	if ctx.Telemetry.Request.Path == "" {
+		path, err = proxywasm.GetHttpRequestHeader(":path")
+		if err != nil {
+			proxywasm.LogWarnf("Failed to get :path header: %v", err)
+		}
+		ctx.Telemetry.Request.Path = path
 	}
 
 	if ctx.Telemetry.Request.Method == "" {
@@ -417,6 +423,12 @@ const Millisecond = 1000 * 1000
  */
 // called when transaction (not necessarily connection) is done
 func (ctx *TraceFilterContext) OnHttpStreamDone() {
+	proxywasm.LogDebugf("OnHttpStreamDone: contextID: %v. rootContextID: %v", ctx.contextID, ctx.rootContextID)
+	if ctx.skipStream {
+		proxywasm.LogInfof("skipStream was set to true. Not sending telemetry")
+		return
+	}
+
 	// https://www.envoyproxy.io/docs/envoy/latest/intro/arch_overview/advanced/attributes
 	destinationAddress, err := proxywasm.GetProperty([]string{"destination", "address"})
 	if err != nil {
@@ -443,22 +455,6 @@ func (ctx *TraceFilterContext) OnHttpStreamDone() {
 	}
 	ctx.Telemetry.DestinationAddress = string(destinationAddress)
 	ctx.Telemetry.SourceAddress = string(sourceAddress)
-
-	ctx.Telemetry.DestinationNamespace = ""
-	// catalogue;sock-shop;catalogue;latest;Kubernetes
-	dstWorkload, err := proxywasm.GetProperty([]string{"upstream_host_metadata", "filter_metadata", "istio", "workload"})
-	if err == nil {
-		s := strings.Split(string(dstWorkload), ";")
-		if len(s) == 5 {
-			ctx.Telemetry.DestinationNamespace = s[1]
-		}
-	}
-
-	proxywasm.LogDebugf("OnHttpStreamDone: contextID: %v. rootContextID: %v", ctx.contextID, ctx.rootContextID)
-	if ctx.skipStream {
-		proxywasm.LogError("skipStream was set to true. Not sending telemetry")
-		return
-	}
 
 	if err := sendAuthPayload(&ctx.Telemetry, ctx.serverAddress, ctx.scnNATSSubject); err != nil {
 		proxywasm.LogErrorf("Failed to send payload. %v", err)
@@ -541,13 +537,13 @@ func (ctx *TraceFilterContext) shouldShortCircuitOnBody(bodySize int, truncatedB
 }
 
 func (ctx *TraceFilterContext) getDestinationNamespace() (string, error) {
-	// catalogue;sock-shop;catalogue;latest;Kubernetes
+	// catalogue;sock-shop;catalogue;latest;Kubernetes or catalogue;sock-shop;catalogue;latest
 	dstWorkload, err := proxywasm.GetProperty([]string{"upstream_host_metadata", "filter_metadata", "istio", "workload"})
 	if err != nil {
 		return "", fmt.Errorf("failed to get upstream_host_metadata: %v", err)
 	}
 	s := strings.Split(string(dstWorkload), ";")
-	if len(s) == 5 {
+	if len(s) == 5 || len(s) == 4 {
 		return s[1], nil
 	}
 	return "", fmt.Errorf("destination namespace was not found")
@@ -555,6 +551,9 @@ func (ctx *TraceFilterContext) getDestinationNamespace() (string, error) {
 
 func (ctx *TraceFilterContext) shouldTrace() bool {
 	if !ctx.isHostFixed {
+		return true
+	}
+	if !ctx.enableTraceSampling {
 		return true
 	}
 

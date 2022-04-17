@@ -6,6 +6,13 @@ TraceBackendPort="${WASM_FILTER_TRACE_BACKEND_PORT:-9000}"
 TraceSamplingPort="${WASM_FILTER_TRACE_SAMPLING_PORT:-9990}"
 TraceSamplingEnabled="${TRACE_SAMPLING_ENABLED:-false}"
 
+traceSamplingConfig=""
+
+if [ "$TraceSamplingEnabled" == "true" ]
+then
+  traceSamplingConfig='{"trace_sampling_enabled": "true"}'
+fi
+
 # patch all the pods under this controller with annotations that mounts the wasm filter from the configmap into the envoy proxy
 function patch() {
   local TO_PATCH="$1"
@@ -19,15 +26,7 @@ function patch() {
 }
 
 # read the envoy filter yml and substitute trace backend address and port 
-envoyFilter=`cat "envoyFilter.yaml" | sed "s/{{WASM_FILTER_TRACE_BACKEND_ADDRESS}}/$TraceBackendAddress/g" | sed "s/{{WASM_FILTER_TRACE_BACKEND_PORT}}/$TraceBackendPort/g" | sed "s/{{WASM_FILTER_TRACE_SAMPLING_PORT}}/$TraceSamplingPort/g"`
-
-# TODO set plugin config
-#if [ "$TraceSamplingEnabled" == "true" ]
-#  envoyFilter=`echo $envoyFilter | sed "s/{{PLUGIN_CONFIG}}/{"}/g"`
-
-then
-else
-fi
+envoyFilter=`cat "envoyFilter.yaml" | sed "s/{{PLUGIN_CONFIG}}/$traceSamplingConfig/g" | sed "s/{{WASM_FILTER_TRACE_BACKEND_ADDRESS}}/$TraceBackendAddress/g" | sed "s/{{WASM_FILTER_TRACE_BACKEND_PORT}}/$TraceBackendPort/g" | sed "s/{{WASM_FILTER_TRACE_SAMPLING_PORT}}/$TraceSamplingPort/g"`
 
 echo "Using wasm binary ${BinaryPath}"
 
