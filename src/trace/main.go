@@ -185,7 +185,7 @@ func (ctx *pluginContext) getHostsToTraceCallBack(_, bodySize, _ int) {
 
 // getHostsToTrace helper function that received the callback response body (GET /api/hostsToTrace)
 // and extract from it the list of hosts to trace
-// swagger can be found in https://github.com/apiclarity/trace-sampling-manager/tree/tsm/api // TODO update link
+// swagger can be found in https://github.com/apiclarity/trace-sampling-manager/blob/main/api/swagger.yaml
 func getHostsToTrace(responseBody []byte) (map[string]struct{}, error) {
 	var parser fastjson.Parser
 
