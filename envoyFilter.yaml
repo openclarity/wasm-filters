@@ -26,6 +26,10 @@ spec:
               config:
                 name: trace-outbound-filter
                 rootId: trace-outbound-filter
+                configuration:
+                  "@type": "type.googleapis.com/google.protobuf.StringValue"
+                  value: |
+                    {{PLUGIN_CONFIG}}
                 vmConfig:
                   code:
                     local:
@@ -52,5 +56,23 @@ spec:
                           protocol: TCP
                           address: {{WASM_FILTER_TRACE_BACKEND_ADDRESS}}
                           port_value: {{WASM_FILTER_TRACE_BACKEND_PORT}}
-
-
+    - applyTo: CLUSTER
+      match:
+        context: SIDECAR_OUTBOUND
+      patch:
+        operation: ADD
+        value: # cluster specification
+          name: trace-sampling-manager
+          type: LOGICAL_DNS
+          connect_timeout: 0.5s
+          lb_policy: ROUND_ROBIN
+          load_assignment:
+            cluster_name: trace-sampling-manager
+            endpoints:
+              - lb_endpoints:
+                  - endpoint:
+                      address:
+                        socket_address:
+                          protocol: TCP
+                          address: {{WASM_FILTER_TRACE_BACKEND_ADDRESS}}
+                          port_value: {{WASM_FILTER_TRACE_SAMPLING_PORT}}
