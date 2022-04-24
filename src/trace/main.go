@@ -16,6 +16,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/base64"
 	"encoding/binary"
 	"fmt"
@@ -66,14 +67,10 @@ type Header struct {
 	Value string `json:"value,omitempty"`
 }
 
-type Config struct {
-	EnableTraceSampling string  `json:"enable_trace_sampling,omitempty"`
-}
-
 var nativeEndian binary.ByteOrder
 
 const tickMilliseconds uint32 = 60000 // 1 Minute
-const traceSamplingEnabledConfig = "{\"trace_sampling_enabled\": \"true\"}"
+const traceSamplingEnabledConfig = `{"trace_sampling_enabled": "true"}`
 
 func main() {
 	proxywasm.SetVMContext(&vmContext{})
@@ -150,7 +147,8 @@ func (ctx *pluginContext) OnPluginStart(_ int) types.OnPluginStartStatus {
 	ctx.serverAddress = "trace_analyzer"          // This needs to be read from the configuration
 	ctx.scnNATSSubject = "portshift.messaging.io" // This needs to be read from the configuration
 	// TODO once we will have more things to configure, we can extract configuration in a better way. for now, since we only have enableTraceSampling configuration, I will just check that value
-	ctx.enableTraceSampling = string(data) == traceSamplingEnabledConfig
+	data = bytes.TrimSuffix(data, []byte("\n"))
+	ctx.enableTraceSampling = bytes.Equal(data, []byte(traceSamplingEnabledConfig))
 
 	if ctx.enableTraceSampling {
 		ctx.callGetHostsToTrace()
