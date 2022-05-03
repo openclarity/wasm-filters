@@ -100,10 +100,10 @@ func (ctx *pluginContext) NewHttpContext(contextID uint32) types.HttpContext {
 	proxywasm.LogDebugf("Called new http context. contextID: %v (we can use the scnExampleConfig here ...)", contextID)
 
 	return &TraceFilterContext{
-		contextID:      contextID,
-		serverAddress:  ctx.serverAddress,
-		scnNATSSubject: ctx.scnNATSSubject,
-		hostsToTrace:   ctx.hostsToTrace,
+		contextID:           contextID,
+		serverAddress:       ctx.serverAddress,
+		scnNATSSubject:      ctx.scnNATSSubject,
+		hostsToTrace:        ctx.hostsToTrace,
 		enableTraceSampling: ctx.enableTraceSampling,
 		Telemetry: Telemetry{
 			Request: &Request{
@@ -134,8 +134,8 @@ type TraceFilterContext struct {
 	Telemetry
 
 	enableTraceSampling bool
-	hostsToTrace map[string]struct{}
-	isHostFixed  bool
+	hostsToTrace        map[string]struct{}
+	isHostFixed         bool
 }
 
 func (ctx *pluginContext) OnPluginStart(_ int) types.OnPluginStartStatus {
@@ -183,7 +183,7 @@ func (ctx *pluginContext) getHostsToTraceCallBack(_, bodySize, _ int) {
 
 // getHostsToTrace helper function that received the callback response body (GET /api/hostsToTrace)
 // and extract from it the list of hosts to trace
-// swagger can be found in https://github.com/apiclarity/trace-sampling-manager/blob/main/api/swagger.yaml
+// swagger can be found in https://github.com/openclarity/trace-sampling-manager/blob/main/api/swagger.yaml
 func getHostsToTrace(responseBody []byte) (map[string]struct{}, error) {
 	var parser fastjson.Parser
 
