@@ -1,4 +1,4 @@
-module github.com/apiclarity/wasm-filters
+module github.com/openclarity/wasm-filters
 
 go 1.15
 
