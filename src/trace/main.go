@@ -69,8 +69,12 @@ type Header struct {
 
 var nativeEndian binary.ByteOrder
 
-const tickMilliseconds uint32 = 60000 // 1 Minute
-const traceSamplingEnabledConfig = `{"trace_sampling_enabled": "true"}`
+const (
+	tickMilliseconds           uint32 = 60000 // 1 Minute
+	traceSamplingEnabledConfig        = `{"trace_sampling_enabled": "true"}`
+	statusCodePseudoHeaderName        = ":status"
+	contentTypeHeaderName             = "content-type"
+)
 
 func main() {
 	proxywasm.SetVMContext(&vmContext{})
@@ -162,9 +166,16 @@ func (ctx *pluginContext) OnPluginStart(_ int) types.OnPluginStartStatus {
 }
 
 func (ctx *pluginContext) getHostsToTraceCallBack(_, bodySize, _ int) {
+	if valid, err := isValidGetHostsToTraceResponse(); err != nil {
+		proxywasm.LogWarnf("failed to verify if response is valid: %v", err)
+		return
+	} else if !valid {
+		return
+	}
+
 	responseBody, err := proxywasm.GetHttpCallResponseBody(0, bodySize)
 	if err != nil {
-		proxywasm.LogCriticalf("failed to get response body: %v", err)
+		proxywasm.LogWarnf("failed to get response body: %v", err)
 		return
 	}
 
@@ -172,13 +183,42 @@ func (ctx *pluginContext) getHostsToTraceCallBack(_, bodySize, _ int) {
 
 	hostsToTrace, err := getHostsToTrace(responseBody)
 	if err != nil {
-		proxywasm.LogCriticalf("failed to extract hosts to trace from body: %v", err)
+		proxywasm.LogWarnf("failed to extract hosts to trace from body: %v", err)
 		return
 	}
 
 	ctx.hostsToTrace = hostsToTrace
 	proxywasm.LogDebugf("New host list to trace was set")
 	//ctx.printHostsToTrace()
+}
+
+// isValidGetHostsToTraceResponse Verifies the following
+// 1. Response status code is 200
+// 2. Response content-type is application/json
+func isValidGetHostsToTraceResponse() (bool, error) {
+	responseHeaders, err := proxywasm.GetHttpCallResponseHeaders()
+	if err != nil {
+		return false, fmt.Errorf("failed to get response headers: %v", err)
+	}
+
+	proxywasm.LogDebugf("Response Headers:")
+	for i, header := range responseHeaders {
+		proxywasm.LogDebugf("[%d]: %v=%v", i, header[0], header[1])
+		switch header[0] {
+		case statusCodePseudoHeaderName:
+			if header[1] != "200" {
+				proxywasm.LogWarnf("isValidGetHostsToTraceResponse: not a valid status code (%s)", header[1])
+				return false, nil
+			}
+		case contentTypeHeaderName:
+			if header[1] != "application/json" {
+				proxywasm.LogWarnf("isValidGetHostsToTraceResponse: not a valid content-type (%s)", header[1])
+				return false, nil
+			}
+		}
+	}
+
+	return true, nil
 }
 
 // getHostsToTrace helper function that received the callback response body (GET /api/hostsToTrace)
@@ -359,7 +399,7 @@ func (ctx *TraceFilterContext) OnHttpResponseHeaders(numHeaders int, endOfStream
 
 	var statusCode string
 	if ctx.Telemetry.Response.StatusCode == "" {
-		statusCode, err = proxywasm.GetHttpResponseHeader(":status")
+		statusCode, err = proxywasm.GetHttpResponseHeader(statusCodePseudoHeaderName)
 		if err != nil {
 			proxywasm.LogErrorf("Failed to get status code: %v", err)
 		}
@@ -409,7 +449,7 @@ func httpCallResponseCallback(numHeaders, bodySize, numTrailers int) {
 		return
 	}
 	for _, header := range headers {
-		if header[0] == ":status" {
+		if header[0] == statusCodePseudoHeaderName {
 			proxywasm.LogDebugf("Got response status from trace server: %v", header[1])
 		}
 	}
