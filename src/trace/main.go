@@ -16,7 +16,6 @@
 package main
 
 import (
-	"bytes"
 	"encoding/base64"
 	"encoding/binary"
 	"fmt"
@@ -71,7 +70,6 @@ var nativeEndian binary.ByteOrder
 
 const (
 	tickMilliseconds           uint32 = 60000 // 1 Minute
-	traceSamplingEnabledConfig        = `{"trace_sampling_enabled": "true"}`
 	statusCodePseudoHeaderName        = ":status"
 	contentTypeHeaderName             = "content-type"
 )
@@ -84,7 +82,7 @@ type vmContext struct {
 	types.DefaultVMContext
 }
 
-func (*vmContext) NewPluginContext(contextID uint32) types.PluginContext {
+func (*vmContext) NewPluginContext(_ uint32) types.PluginContext {
 	if err := setEndianness(); err != nil {
 		proxywasm.LogErrorf("Failed to set endianness: %v", err)
 	}
@@ -93,20 +91,23 @@ func (*vmContext) NewPluginContext(contextID uint32) types.PluginContext {
 
 type pluginContext struct {
 	types.DefaultPluginContext
-	// The server to which the traces will be sent
-	serverAddress       string
-	enableTraceSampling bool
-	hostsToTrace        map[string]struct{}
+	pluginConfig
+	hostsToTrace map[string]struct{}
+}
+
+type pluginConfig struct {
+	serverAddress        string // The server to which the traces will be sent
+	traceSamplingEnabled bool
 }
 
 func (ctx *pluginContext) NewHttpContext(contextID uint32) types.HttpContext {
 	proxywasm.LogDebugf("Called new http context. contextID: %v", contextID)
 
 	return &TraceFilterContext{
-		contextID:           contextID,
-		serverAddress:       ctx.serverAddress,
-		hostsToTrace:        ctx.hostsToTrace,
-		enableTraceSampling: ctx.enableTraceSampling,
+		contextID:            contextID,
+		serverAddress:        ctx.serverAddress,
+		hostsToTrace:         ctx.hostsToTrace,
+		traceSamplingEnabled: ctx.traceSamplingEnabled,
 		Telemetry: Telemetry{
 			Request: &Request{
 				Common: &Common{
@@ -135,23 +136,15 @@ type TraceFilterContext struct {
 
 	Telemetry
 
-	enableTraceSampling bool
-	hostsToTrace        map[string]struct{}
-	isHostFixed         bool
+	traceSamplingEnabled bool
+	hostsToTrace         map[string]struct{}
+	isHostFixed          bool
 }
 
 func (ctx *pluginContext) OnPluginStart(_ int) types.OnPluginStartStatus {
-	data, err := proxywasm.GetPluginConfiguration()
-	if err != nil {
-		proxywasm.LogWarnf("No TraceFilter plugin configuration. Will use defaults")
-	}
+	ctx.pluginConfig = readPluginConfig()
 
-	ctx.serverAddress = "trace_analyzer" // This needs to be read from the configuration
-	// TODO once we will have more things to configure, we can extract configuration in a better way. for now, since we only have enableTraceSampling configuration, I will just check that value
-	data = bytes.TrimSuffix(data, []byte("\n"))
-	ctx.enableTraceSampling = bytes.Equal(data, []byte(traceSamplingEnabledConfig))
-
-	if ctx.enableTraceSampling {
+	if ctx.traceSamplingEnabled {
 		ctx.callGetHostsToTrace()
 		if err := proxywasm.SetTickPeriodMilliSeconds(tickMilliseconds); err != nil {
 			proxywasm.LogCriticalf("failed to set tick period: %v", err)
@@ -160,6 +153,32 @@ func (ctx *pluginContext) OnPluginStart(_ int) types.OnPluginStartStatus {
 	}
 
 	return types.OnPluginStartStatusOK
+}
+
+func readPluginConfig() pluginConfig {
+	ret := pluginConfig{
+		serverAddress:        "trace_analyzer",
+		traceSamplingEnabled: false,
+	}
+
+	data, err := proxywasm.GetPluginConfiguration()
+	if err != nil {
+		proxywasm.LogWarnf("No plugin configuration. Will use defaults: %v", err)
+		return ret
+	}
+
+	var parser fastjson.Parser
+
+	parsedData, err := parser.Parse(string(data))
+	if err != nil {
+		proxywasm.LogWarnf("Failed to parse plugin configuration data. Will use defaults: %v", err)
+		return ret
+	}
+
+	ret.traceSamplingEnabled = string(parsedData.GetStringBytes("trace_sampling_enabled")) == "true"
+	proxywasm.LogDebugf("Trace sampling enabled = %v", ret.traceSamplingEnabled)
+
+	return ret
 }
 
 func (ctx *pluginContext) getHostsToTraceCallBack(_, bodySize, _ int) {
@@ -603,7 +622,7 @@ func (ctx *TraceFilterContext) shouldTrace() bool {
 		return true
 	}
 
-	if !ctx.enableTraceSampling {
+	if !ctx.traceSamplingEnabled {
 		return true
 	}
 
