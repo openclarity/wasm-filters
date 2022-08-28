@@ -131,6 +131,7 @@ type TraceFilterContext struct {
 	skipStream            bool
 	contextID             uint32
 	rootContextID         uint32
+	destinationPort       string
 	// The server to which the traces will be sent
 	serverAddress  string
 	scnNATSSubject string
@@ -264,6 +265,15 @@ func (ctx *TraceFilterContext) OnHttpRequestHeaders(numHeaders int, endOfStream 
 	if ctx.skipStream {
 		return types.ActionContinue
 	}
+
+	// https://www.envoyproxy.io/docs/envoy/latest/intro/arch_overview/advanced/attributes
+	destinationAddress, err := proxywasm.GetProperty([]string{"destination", "address"})
+	if err != nil {
+		proxywasm.LogError("Failed to get destination address")
+		destinationAddress = []byte("")
+	}
+	ctx.Telemetry.DestinationAddress = string(destinationAddress)
+	ctx.destinationPort = getPortFromAddress(string(destinationAddress))
 
 	headers, err := proxywasm.GetHttpRequestHeaders()
 	if err != nil {
@@ -468,12 +478,6 @@ func (ctx *TraceFilterContext) OnHttpStreamDone() {
 		return
 	}
 
-	// https://www.envoyproxy.io/docs/envoy/latest/intro/arch_overview/advanced/attributes
-	destinationAddress, err := proxywasm.GetProperty([]string{"destination", "address"})
-	if err != nil {
-		proxywasm.LogError("Failed to get destination address")
-		destinationAddress = []byte("")
-	}
 	reqTimeNano, err := proxywasm.GetProperty([]string{"request", "time"})
 	if err != nil {
 		proxywasm.LogError("Failed to get request time")
@@ -492,12 +496,21 @@ func (ctx *TraceFilterContext) OnHttpStreamDone() {
 		proxywasm.LogError("Failed to get source address")
 		sourceAddress = []byte("")
 	}
-	ctx.Telemetry.DestinationAddress = string(destinationAddress)
+
 	ctx.Telemetry.SourceAddress = string(sourceAddress)
 
 	if err := sendAuthPayload(&ctx.Telemetry, ctx.serverAddress, ctx.scnNATSSubject); err != nil {
 		proxywasm.LogErrorf("Failed to send payload. %v", err)
 	}
+}
+
+func getPortFromAddress(address string) string {
+	spl := strings.Split(address, ":")
+	if len(spl) != 2 {
+		// TODO currently we assume http, need to support https 443
+		return "80"
+	}
+	return spl[1]
 }
 
 const jsonPayload string = `{"requestID":"%v","scheme":"%v","destinationAddress":"%v","destinationNamespace":"%v","sourceAddress":"%v","request":{"method":"%v","path":"%v","host":"%v","common": {"version":"%v","headers":%v,"body":"%v","TruncatedBody":%v,"time":%v}},"response":{"statusCode":"%v","common": {"version":"%v","headers":%v,"body":"%v","TruncatedBody": %v,"time":%v}}}`
@@ -526,6 +539,7 @@ func sendAuthPayload(payload *Telemetry, clusterName string, subject string) err
 		proxywasm.LogErrorf("Dispatch httpcall failed. %v", err)
 		return err
 	}
+	proxywasm.LogInfof("Telemetry dispatched: %+v", body)
 	return nil
 }
 
@@ -589,24 +603,31 @@ func (ctx *TraceFilterContext) getDestinationNamespace() (string, error) {
 }
 
 func (ctx *TraceFilterContext) shouldTrace() bool {
+	// check if we have enough information to decide according to hosts to trace map
 	if !ctx.isHostFixed {
 		return true
 	}
+
 	if !ctx.enableTraceSampling {
 		return true
 	}
 
-	_, foundInApiToTrace := ctx.hostsToTrace[ctx.Telemetry.Request.Host]
+	if ctx.destinationPort == "" {
+		proxywasm.LogWarn("Destination port is empty")
+		return true
+	}
+
+	_, foundInApiToTrace := ctx.hostsToTrace[ctx.Telemetry.Request.Host+":"+ctx.destinationPort]
 	// check if we should trace all hosts
 	_, shouldTraceAll := ctx.hostsToTrace["*"]
 
 	if !foundInApiToTrace && !shouldTraceAll {
-		proxywasm.LogDebugf("Host should not be traced. host=%v, foundInApiToTrace=%v, shouldTraceAll=%v",
-			ctx.Telemetry.Request.Host, foundInApiToTrace, shouldTraceAll)
+		proxywasm.LogDebugf("Host should not be traced. host=%v, port=%v, foundInApiToTrace=%v, shouldTraceAll=%v",
+			ctx.Telemetry.Request.Host, ctx.destinationPort, foundInApiToTrace, shouldTraceAll)
 		return false
 	}
-	proxywasm.LogDebugf("Host should be traced. host=%v, foundInApiToTrace=%v, shouldTraceAll=%v",
-		ctx.Telemetry.Request.Host, foundInApiToTrace, shouldTraceAll)
+	proxywasm.LogDebugf("Host should be traced. host=%v, port=%v, foundInApiToTrace=%v, shouldTraceAll=%v",
+		ctx.Telemetry.Request.Host, ctx.destinationPort, foundInApiToTrace, shouldTraceAll)
 	return true
 }
 
