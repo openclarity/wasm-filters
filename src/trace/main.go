@@ -186,7 +186,6 @@ func (ctx *pluginContext) getHostsToTraceCallBack(_, bodySize, _ int) {
 
 	ctx.hostsToTrace = hostsToTrace
 	proxywasm.LogDebugf("New host list to trace was set")
-	//ctx.printHostsToTrace()
 }
 
 // isValidGetHostsToTraceResponse Verifies the following
