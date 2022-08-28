@@ -95,18 +95,16 @@ type pluginContext struct {
 	types.DefaultPluginContext
 	// The server to which the traces will be sent
 	serverAddress       string
-	scnNATSSubject      string
 	enableTraceSampling bool
 	hostsToTrace        map[string]struct{}
 }
 
 func (ctx *pluginContext) NewHttpContext(contextID uint32) types.HttpContext {
-	proxywasm.LogDebugf("Called new http context. contextID: %v (we can use the scnExampleConfig here ...)", contextID)
+	proxywasm.LogDebugf("Called new http context. contextID: %v", contextID)
 
 	return &TraceFilterContext{
 		contextID:           contextID,
 		serverAddress:       ctx.serverAddress,
-		scnNATSSubject:      ctx.scnNATSSubject,
 		hostsToTrace:        ctx.hostsToTrace,
 		enableTraceSampling: ctx.enableTraceSampling,
 		Telemetry: Telemetry{
@@ -133,8 +131,7 @@ type TraceFilterContext struct {
 	rootContextID         uint32
 	destinationPort       string
 	// The server to which the traces will be sent
-	serverAddress  string
-	scnNATSSubject string
+	serverAddress string
 
 	Telemetry
 
@@ -149,8 +146,7 @@ func (ctx *pluginContext) OnPluginStart(_ int) types.OnPluginStartStatus {
 		proxywasm.LogWarnf("No TraceFilter plugin configuration. Will use defaults")
 	}
 
-	ctx.serverAddress = "trace_analyzer"          // This needs to be read from the configuration
-	ctx.scnNATSSubject = "portshift.messaging.io" // This needs to be read from the configuration
+	ctx.serverAddress = "trace_analyzer" // This needs to be read from the configuration
 	// TODO once we will have more things to configure, we can extract configuration in a better way. for now, since we only have enableTraceSampling configuration, I will just check that value
 	data = bytes.TrimSuffix(data, []byte("\n"))
 	ctx.enableTraceSampling = bytes.Equal(data, []byte(traceSamplingEnabledConfig))
@@ -499,7 +495,7 @@ func (ctx *TraceFilterContext) OnHttpStreamDone() {
 
 	ctx.Telemetry.SourceAddress = string(sourceAddress)
 
-	if err := sendAuthPayload(&ctx.Telemetry, ctx.serverAddress, ctx.scnNATSSubject); err != nil {
+	if err := sendAuthPayload(&ctx.Telemetry, ctx.serverAddress); err != nil {
 		proxywasm.LogErrorf("Failed to send payload. %v", err)
 	}
 }
@@ -521,7 +517,7 @@ const (
 
 var emptyTrailers = [][2]string{}
 
-func sendAuthPayload(payload *Telemetry, clusterName string, subject string) error {
+func sendAuthPayload(payload *Telemetry, clusterName string) error {
 	encodedBodyRequest := base64.StdEncoding.EncodeToString([]byte(payload.Request.Common.Body))
 	encodedBodyResponse := base64.StdEncoding.EncodeToString([]byte(payload.Response.Common.Body))
 
