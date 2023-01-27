@@ -603,7 +603,7 @@ func (ctx *TraceFilterContext) shouldShortCircuitOnBody(bodySize int, truncatedB
 	return false
 }
 
-func (ctx *TraceFilterContext) getDestinationNamespace() (string, error) {
+func (ctx *TraceFilterContext) getIstioDestinationNamespace() (string, error) {
 	// catalogue;sock-shop;catalogue;latest;Kubernetes or catalogue;sock-shop;catalogue;latest
 	dstWorkload, err := proxywasm.GetProperty([]string{"upstream_host_metadata", "filter_metadata", "istio", "workload"})
 	if err != nil {
@@ -614,6 +614,27 @@ func (ctx *TraceFilterContext) getDestinationNamespace() (string, error) {
 		return s[1], nil
 	}
 	return "", fmt.Errorf("destination namespace was not found")
+}
+
+func (ctx *TraceFilterContext) getKumaDestinationNamespace() (string, error) {
+	dstNamespace, err := proxywasm.GetProperty([]string{"upstream_host_metadata", "filter_metadata", "envoy.lb", "k8s.kuma.io/namespace"})
+	if err != nil {
+		return "", fmt.Errorf("failed to get upstream_host_metadata: %v", err)
+	}
+	return string(dstNamespace), nil
+}
+
+func (ctx *TraceFilterContext) getDestinationNamespace() (string, error) {
+	var dstNamespace string
+
+	dstNamespace, err := ctx.getIstioDestinationNamespace()
+	if err != nil {
+		dstNamespace, err = ctx.getKumaDestinationNamespace()
+		if err != nil {
+			return "", err
+		}
+	}
+	return dstNamespace, nil
 }
 
 func (ctx *TraceFilterContext) shouldTrace() bool {
@@ -645,7 +666,6 @@ func (ctx *TraceFilterContext) shouldTrace() bool {
 	return true
 }
 
-//
 // fixHostname will return only hostname without scheme and port
 // ex. https://example.org:8000 --> example.org. (for external services)
 // for internal services:
