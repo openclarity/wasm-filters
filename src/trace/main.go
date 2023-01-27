@@ -72,6 +72,7 @@ const (
 	tickMilliseconds           uint32 = 60000 // 1 Minute
 	statusCodePseudoHeaderName        = ":status"
 	contentTypeHeaderName             = "content-type"
+	defaultServiceMesh                = "istio"
 )
 
 func main() {
@@ -92,22 +93,25 @@ func (*vmContext) NewPluginContext(_ uint32) types.PluginContext {
 type pluginContext struct {
 	types.DefaultPluginContext
 	pluginConfig
-	hostsToTrace map[string]struct{}
+	hostsToTrace              map[string]struct{}
+	getDestinationNamespaceFn func(ctx *TraceFilterContext) (string, error)
 }
 
 type pluginConfig struct {
 	serverAddress        string // The server to which the traces will be sent
 	traceSamplingEnabled bool
+	serviceMesh          string
 }
 
 func (ctx *pluginContext) NewHttpContext(contextID uint32) types.HttpContext {
 	proxywasm.LogDebugf("Called new http context. contextID: %v", contextID)
 
 	return &TraceFilterContext{
-		contextID:            contextID,
-		serverAddress:        ctx.serverAddress,
-		hostsToTrace:         ctx.hostsToTrace,
-		traceSamplingEnabled: ctx.traceSamplingEnabled,
+		contextID:                 contextID,
+		serverAddress:             ctx.serverAddress,
+		hostsToTrace:              ctx.hostsToTrace,
+		traceSamplingEnabled:      ctx.traceSamplingEnabled,
+		getDestinationNamespaceFn: ctx.getDestinationNamespaceFn,
 		Telemetry: Telemetry{
 			Request: &Request{
 				Common: &Common{
@@ -136,9 +140,10 @@ type TraceFilterContext struct {
 
 	Telemetry
 
-	traceSamplingEnabled bool
-	hostsToTrace         map[string]struct{}
-	isHostFixed          bool
+	traceSamplingEnabled      bool
+	hostsToTrace              map[string]struct{}
+	isHostFixed               bool
+	getDestinationNamespaceFn func(ctx *TraceFilterContext) (string, error)
 }
 
 func (ctx *pluginContext) OnPluginStart(_ int) types.OnPluginStartStatus {
@@ -151,6 +156,14 @@ func (ctx *pluginContext) OnPluginStart(_ int) types.OnPluginStartStatus {
 			return types.OnPluginStartStatusFailed
 		}
 	}
+	switch ctx.pluginConfig.serviceMesh {
+	case "istio":
+		ctx.getDestinationNamespaceFn = getIstioDestinationNamespace
+	case "kuma":
+		ctx.getDestinationNamespaceFn = getKumaDestinationNamespace
+	default:
+		ctx.getDestinationNamespaceFn = getIstioDestinationNamespace
+	}
 
 	return types.OnPluginStartStatusOK
 }
@@ -159,6 +172,7 @@ func readPluginConfig() pluginConfig {
 	ret := pluginConfig{
 		serverAddress:        "trace_analyzer",
 		traceSamplingEnabled: false,
+		serviceMesh:          defaultServiceMesh,
 	}
 
 	data, err := proxywasm.GetPluginConfiguration()
@@ -177,6 +191,15 @@ func readPluginConfig() pluginConfig {
 
 	ret.traceSamplingEnabled = string(parsedData.GetStringBytes("trace_sampling_enabled")) == "true"
 	proxywasm.LogDebugf("Trace sampling enabled = %v", ret.traceSamplingEnabled)
+
+	serviceMesh := string(parsedData.GetStringBytes("service_mesh"))
+	if serviceMesh != "istio" && serviceMesh != "kuma" {
+		proxywasm.LogWarnf("Service Mesh '%s' is not supported, defaulting to '%s' for backward compatibility", serviceMesh, "istio")
+		serviceMesh = defaultServiceMesh
+	}
+	proxywasm.LogDebugf("Running on service Mesh = %v", ret.serviceMesh)
+
+	ret.serviceMesh = serviceMesh
 
 	return ret
 }
@@ -398,7 +421,7 @@ func (ctx *TraceFilterContext) OnHttpResponseHeaders(numHeaders int, endOfStream
 	}
 	var err error
 	// here we should have the upstream data (namespace)
-	ctx.Telemetry.DestinationNamespace, err = ctx.getDestinationNamespace()
+	ctx.Telemetry.DestinationNamespace, err = ctx.getDestinationNamespaceFn(ctx)
 	if err != nil {
 		proxywasm.LogInfof("Failed to get destination namespace: %v", err)
 	}
@@ -603,7 +626,7 @@ func (ctx *TraceFilterContext) shouldShortCircuitOnBody(bodySize int, truncatedB
 	return false
 }
 
-func (ctx *TraceFilterContext) getIstioDestinationNamespace() (string, error) {
+func getIstioDestinationNamespace(ctx *TraceFilterContext) (string, error) {
 	// catalogue;sock-shop;catalogue;latest;Kubernetes or catalogue;sock-shop;catalogue;latest
 	dstWorkload, err := proxywasm.GetProperty([]string{"upstream_host_metadata", "filter_metadata", "istio", "workload"})
 	if err != nil {
@@ -616,25 +639,12 @@ func (ctx *TraceFilterContext) getIstioDestinationNamespace() (string, error) {
 	return "", fmt.Errorf("destination namespace was not found")
 }
 
-func (ctx *TraceFilterContext) getKumaDestinationNamespace() (string, error) {
+func getKumaDestinationNamespace(ctx *TraceFilterContext) (string, error) {
 	dstNamespace, err := proxywasm.GetProperty([]string{"upstream_host_metadata", "filter_metadata", "envoy.lb", "k8s.kuma.io/namespace"})
 	if err != nil {
 		return "", fmt.Errorf("failed to get upstream_host_metadata: %v", err)
 	}
 	return string(dstNamespace), nil
-}
-
-func (ctx *TraceFilterContext) getDestinationNamespace() (string, error) {
-	var dstNamespace string
-
-	dstNamespace, err := ctx.getIstioDestinationNamespace()
-	if err != nil {
-		dstNamespace, err = ctx.getKumaDestinationNamespace()
-		if err != nil {
-			return "", err
-		}
-	}
-	return dstNamespace, nil
 }
 
 func (ctx *TraceFilterContext) shouldTrace() bool {
