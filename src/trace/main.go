@@ -193,13 +193,15 @@ func readPluginConfig() pluginConfig {
 	proxywasm.LogDebugf("Trace sampling enabled = %v", ret.traceSamplingEnabled)
 
 	serviceMesh := string(parsedData.GetStringBytes("service_mesh"))
-	if serviceMesh != "istio" && serviceMesh != "kuma" {
-		proxywasm.LogWarnf("Service Mesh '%s' is not supported, defaulting to '%s' for backward compatibility", serviceMesh, "istio")
+	switch serviceMesh {
+	case "istio", "kuma":
+		ret.serviceMesh = serviceMesh
+	default:
+		proxywasm.LogWarnf("Service Mesh '%s' is not supported, defaulting to '%s' for backward compatibility", serviceMesh, defaultServiceMesh)
 		serviceMesh = defaultServiceMesh
 	}
-	proxywasm.LogDebugf("Running on service Mesh = %v", ret.serviceMesh)
 
-	ret.serviceMesh = serviceMesh
+	proxywasm.LogDebugf("Running on service Mesh = %v", ret.serviceMesh)
 
 	return ret
 }
