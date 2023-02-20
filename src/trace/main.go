@@ -104,7 +104,7 @@ type pluginConfig struct {
 }
 
 func (ctx *pluginContext) NewHttpContext(contextID uint32) types.HttpContext {
-	proxywasm.LogDebugf("Called new http context. contextID: %v", contextID)
+	proxywasm.LogInfof("Called new http context. contextID: %v", contextID)
 
 	return &TraceFilterContext{
 		contextID:                 contextID,
@@ -148,7 +148,8 @@ type TraceFilterContext struct {
 
 func (ctx *pluginContext) OnPluginStart(_ int) types.OnPluginStartStatus {
 	ctx.pluginConfig = readPluginConfig()
-
+	fmt.Println("AAAAAAABBBBBBTTTTT*******")
+	proxywasm.LogInfo("STARTED!!!!! ******************** **************")
 	if ctx.traceSamplingEnabled {
 		ctx.callGetHostsToTrace()
 		if err := proxywasm.SetTickPeriodMilliSeconds(tickMilliseconds); err != nil {
@@ -190,7 +191,7 @@ func readPluginConfig() pluginConfig {
 	}
 
 	ret.traceSamplingEnabled = string(parsedData.GetStringBytes("trace_sampling_enabled")) == "true"
-	proxywasm.LogDebugf("Trace sampling enabled = %v", ret.traceSamplingEnabled)
+	proxywasm.LogInfof("Trace sampling enabled = %v", ret.traceSamplingEnabled)
 
 	serviceMesh := string(parsedData.GetStringBytes("service_mesh"))
 	switch serviceMesh {
@@ -201,7 +202,7 @@ func readPluginConfig() pluginConfig {
 		serviceMesh = defaultServiceMesh
 	}
 
-	proxywasm.LogDebugf("Running on service Mesh = %v", ret.serviceMesh)
+	proxywasm.LogInfof("Running on service Mesh = %v", ret.serviceMesh)
 
 	return ret
 }
@@ -220,7 +221,7 @@ func (ctx *pluginContext) getHostsToTraceCallBack(_, bodySize, _ int) {
 		return
 	}
 
-	proxywasm.LogDebugf("got response body: %v", string(responseBody))
+	proxywasm.LogInfof("got response body: %v", string(responseBody))
 
 	hostsToTrace, err := getHostsToTrace(responseBody)
 	if err != nil {
@@ -229,7 +230,7 @@ func (ctx *pluginContext) getHostsToTraceCallBack(_, bodySize, _ int) {
 	}
 
 	ctx.hostsToTrace = hostsToTrace
-	proxywasm.LogDebugf("New host list to trace was set")
+	proxywasm.LogInfof("New host list to trace was set")
 }
 
 // isValidGetHostsToTraceResponse Verifies the following
@@ -241,9 +242,9 @@ func isValidGetHostsToTraceResponse() (bool, error) {
 		return false, fmt.Errorf("failed to get response headers: %v", err)
 	}
 
-	proxywasm.LogDebugf("Response Headers:")
+	proxywasm.LogInfof("Response Headers:")
 	for i, header := range responseHeaders {
-		proxywasm.LogDebugf("[%d]: %v=%v", i, header[0], header[1])
+		proxywasm.LogInfof("[%d]: %v=%v", i, header[0], header[1])
 		switch header[0] {
 		case statusCodePseudoHeaderName:
 			if header[1] != "200" {
@@ -290,7 +291,7 @@ func (ctx *pluginContext) callGetHostsToTrace() {
 	hs := [][2]string{
 		{":method", "GET"}, {":authority", "apiclarity"}, {":path", "/api/hostsToTrace"}, {"accept", "*/*"},
 	}
-	proxywasm.LogDebugf("Retrieving hosts to trace from trace-sampling-manager")
+	proxywasm.LogInfof("Retrieving hosts to trace from trace-sampling-manager")
 	if _, err := proxywasm.DispatchHttpCall("trace-sampling-manager", hs, nil, emptyTrailers,
 		httpCallTimeoutMs, ctx.getHostsToTraceCallBack); err != nil {
 		proxywasm.LogCriticalf("dispatch httpcall failed: %v", err)
@@ -320,9 +321,9 @@ func (ctx *TraceFilterContext) OnHttpRequestHeaders(numHeaders int, endOfStream 
 		ctx.skipStream = true
 		return types.ActionContinue
 	}
-	proxywasm.LogDebugf("OnHttpRequestHeaders: contextID: %v. rootContextID: %v, endOfStream: %v, numHeaders: %v",
+	proxywasm.LogInfof("OnHttpRequestHeaders: contextID: %v. rootContextID: %v, endOfStream: %v, numHeaders: %v",
 		ctx.contextID, ctx.rootContextID, endOfStream, numHeaders)
-	proxywasm.LogDebugf("Request headers: %v", headers)
+	proxywasm.LogInfof("Request headers: %v", headers)
 
 	var path string
 	var host string
@@ -389,7 +390,7 @@ const MaxBodySize = 1000 * 1000
  * override
  */
 func (ctx *TraceFilterContext) OnHttpRequestBody(bodySize int, endOfStream bool) types.Action {
-	proxywasm.LogDebugf("OnHttpRequestBody: contextID: %v. rootContextID: %v, endOfStream: %v", ctx.contextID, ctx.rootContextID, endOfStream)
+	proxywasm.LogInfof("OnHttpRequestBody: contextID: %v. rootContextID: %v, endOfStream: %v", ctx.contextID, ctx.rootContextID, endOfStream)
 	if ctx.shouldShortCircuitOnBody(bodySize, ctx.Telemetry.Request.Common.TruncatedBody) {
 		return types.ActionContinue
 	}
@@ -417,7 +418,7 @@ func (ctx *TraceFilterContext) OnHttpRequestBody(bodySize int, endOfStream bool)
  * override
  */
 func (ctx *TraceFilterContext) OnHttpResponseHeaders(numHeaders int, endOfStream bool) types.Action {
-	proxywasm.LogDebugf("OnHttpResponseHeaders: contextID: %v. rootContextID: %v, endOfStream: %v, numHeaders: %v", ctx.contextID, ctx.rootContextID, endOfStream, numHeaders)
+	proxywasm.LogInfof("OnHttpResponseHeaders: contextID: %v. rootContextID: %v, endOfStream: %v, numHeaders: %v", ctx.contextID, ctx.rootContextID, endOfStream, numHeaders)
 	if ctx.skipStream {
 		return types.ActionContinue
 	}
@@ -444,7 +445,7 @@ func (ctx *TraceFilterContext) OnHttpResponseHeaders(numHeaders int, endOfStream
 		return types.ActionContinue
 	}
 
-	proxywasm.LogDebugf("Response headers: %v", headers)
+	proxywasm.LogInfof("Response headers: %v", headers)
 
 	var statusCode string
 	if ctx.Telemetry.Response.StatusCode == "" {
@@ -464,7 +465,7 @@ func (ctx *TraceFilterContext) OnHttpResponseHeaders(numHeaders int, endOfStream
  * override
  */
 func (ctx *TraceFilterContext) OnHttpResponseBody(bodySize int, endOfStream bool) types.Action {
-	proxywasm.LogDebugf("OnHttpResponseBody: contextID: %v. rootContextID: %v, endOfStream: %v", ctx.contextID, ctx.rootContextID, endOfStream)
+	proxywasm.LogInfof("OnHttpResponseBody: contextID: %v. rootContextID: %v, endOfStream: %v", ctx.contextID, ctx.rootContextID, endOfStream)
 	if ctx.shouldShortCircuitOnBody(bodySize, ctx.Telemetry.Response.Common.TruncatedBody) {
 		return types.ActionContinue
 	}
@@ -491,7 +492,7 @@ func (ctx *TraceFilterContext) OnHttpResponseBody(bodySize int, endOfStream bool
 }
 
 func httpCallResponseCallback(numHeaders, bodySize, numTrailers int) {
-	proxywasm.LogDebugf("httpCallResponseCallback. numHeaders: %v, bodySize: %v, numTrailers: %v", numHeaders, bodySize, numTrailers)
+	proxywasm.LogInfof("httpCallResponseCallback. numHeaders: %v, bodySize: %v, numTrailers: %v", numHeaders, bodySize, numTrailers)
 	headers, err := proxywasm.GetHttpCallResponseHeaders()
 	if err != nil {
 		proxywasm.LogWarnf("Failed to get http call response headers. %v", err)
@@ -499,7 +500,7 @@ func httpCallResponseCallback(numHeaders, bodySize, numTrailers int) {
 	}
 	for _, header := range headers {
 		if header[0] == statusCodePseudoHeaderName {
-			proxywasm.LogDebugf("Got response status from trace server: %v", header[1])
+			proxywasm.LogInfof("Got response status from trace server: %v", header[1])
 		}
 	}
 }
@@ -511,7 +512,7 @@ const Millisecond = 1000 * 1000
  */
 // called when transaction (not necessarily connection) is done
 func (ctx *TraceFilterContext) OnHttpStreamDone() {
-	proxywasm.LogDebugf("OnHttpStreamDone: contextID: %v. rootContextID: %v", ctx.contextID, ctx.rootContextID)
+	proxywasm.LogInfof("OnHttpStreamDone: contextID: %v. rootContextID: %v", ctx.contextID, ctx.rootContextID)
 	if ctx.skipStream {
 		proxywasm.LogInfof("skipStream was set to true. Not sending telemetry")
 		return
@@ -669,11 +670,11 @@ func (ctx *TraceFilterContext) shouldTrace() bool {
 	_, shouldTraceAll := ctx.hostsToTrace["*"]
 
 	if !foundInApiToTrace && !shouldTraceAll {
-		proxywasm.LogDebugf("Host should not be traced. host=%v, port=%v, foundInApiToTrace=%v, shouldTraceAll=%v",
+		proxywasm.LogInfof("Host should not be traced. host=%v, port=%v, foundInApiToTrace=%v, shouldTraceAll=%v",
 			ctx.Telemetry.Request.Host, ctx.destinationPort, foundInApiToTrace, shouldTraceAll)
 		return false
 	}
-	proxywasm.LogDebugf("Host should be traced. host=%v, port=%v, foundInApiToTrace=%v, shouldTraceAll=%v",
+	proxywasm.LogInfof("Host should be traced. host=%v, port=%v, foundInApiToTrace=%v, shouldTraceAll=%v",
 		ctx.Telemetry.Request.Host, ctx.destinationPort, foundInApiToTrace, shouldTraceAll)
 	return true
 }
